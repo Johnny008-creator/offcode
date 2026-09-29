@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -68,7 +69,8 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) <-ch
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			events <- StreamEvent{Kind: EventError, Err: fmt.Errorf("backend returned status %d", resp.StatusCode)}
+			raw, _ := io.ReadAll(resp.Body)
+			events <- StreamEvent{Kind: EventError, Err: fmt.Errorf("backend returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 			return
 		}
 
