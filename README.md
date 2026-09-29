@@ -9,11 +9,15 @@ Design rationale and what's deliberately out of scope for v0.1 live in
 
 ## Status
 
-v0.1 skeleton: a working REPL agent loop with six tools (read, write, edit,
-bash, grep, glob), three permission modes, Ollama/LM Studio backends, and a
-fallback parser for models that emit tool calls as plain-text JSON instead
-of using the structured `tool_calls` field (confirmed necessary in practice
-against `qwen2.5-coder:7b`). No streaming, no TUI, no context compaction yet.
+v0.1: a terminal UI (Bubble Tea) with streaming responses, a live activity
+indicator (thinking / generating / using tool: X), a status bar (elapsed
+time, context usage, tokens/sec), six tools (read, write, edit, bash, grep,
+glob), three permission modes, Ollama/LM Studio backends, and a fallback
+parser for models that emit tool calls as plain-text JSON instead of using
+the structured `tool_calls` field (confirmed necessary in practice against
+`qwen2.5-coder:7b`). No context compaction yet.
+
+Ctrl+C interrupts an in-flight generation; Ctrl+D exits.
 
 ## Build
 

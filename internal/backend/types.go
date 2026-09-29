@@ -13,6 +13,7 @@ type Message struct {
 type ToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
+	Index    int          `json:"index,omitempty"`
 	Function FunctionCall `json:"function"`
 }
 
@@ -33,10 +34,21 @@ type FunctionDef struct {
 }
 
 type ChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Tools    []Tool    `json:"tools,omitempty"`
-	Stream   bool      `json:"stream"`
+	Model         string         `json:"model"`
+	Messages      []Message      `json:"messages"`
+	Tools         []Tool         `json:"tools,omitempty"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 type chatResponse struct {
@@ -44,6 +56,22 @@ type chatResponse struct {
 		Message      Message `json:"message"`
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+type streamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Role      string     `json:"role,omitempty"`
+			Content   string     `json:"content,omitempty"`
+			Reasoning string     `json:"reasoning,omitempty"`
+			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *Usage `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`

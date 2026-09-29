@@ -1,0 +1,454 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/Johnny008-creator/offcode/internal/agent"
+	"github.com/Johnny008-creator/offcode/internal/backend"
+	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/permission"
+	"github.com/Johnny008-creator/offcode/internal/tools"
+)
+
+const systemPrompt = `You are offcode, a local coding assistant running against an on-device model.
+You have tools to read, write, and edit files, run shell commands, and search the codebase.
+Use tools when you need real information instead of guessing. Keep responses concise.`
+
+const maxToolIterationsPerTurn = 25
+
+type phase int
+
+const (
+	phaseSplash phase = iota
+	phaseChat
+)
+
+type state int
+
+const (
+	stateIdle state = iota
+	stateGenerating
+	stateConfirming
+)
+
+type Model struct {
+	cfg    config.Config
+	client *backend.Client
+
+	messages []backend.Message
+
+	phase phase
+	state state
+
+	viewport viewport.Model
+	input    textinput.Model
+	spinner  spinner.Model
+
+	blocks           []block
+	streamingContent string
+	streamingReason  string
+
+	width, height int
+	ready         bool
+
+	sessionStart time.Time
+	turnStart    time.Time
+	tokensPerSec float64
+	lastUsage    backend.Usage
+	contextLimit int
+
+	activity string
+
+	pendingToolCalls []backend.ToolCall
+	pendingConfirm   *backend.ToolCall
+	toolIterations   int
+
+	streamEvents <-chan backend.StreamEvent
+	cancelGen    context.CancelFunc
+
+	quitting bool
+}
+
+func New(cfg config.Config) Model {
+	ti := textinput.New()
+	ti.Placeholder = "type your request..."
+	ti.Prompt = "> "
+	ti.Focus()
+
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+
+	return Model{
+		cfg:          cfg,
+		client:       backend.NewClient(cfg.BaseURL),
+		messages:     []backend.Message{{Role: "system", Content: systemPrompt}},
+		phase:        phaseSplash,
+		state:        stateIdle,
+		input:        ti,
+		spinner:      sp,
+		sessionStart: time.Now(),
+	}
+}
+
+func Run(cfg config.Config) error {
+	p := tea.NewProgram(New(cfg), tea.WithAltScreen())
+	_, err := p.Run()
+	return err
+}
+
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(splashCmd(m.client, m.cfg), m.spinner.Tick)
+}
+
+func splashCmd(c *backend.Client, cfg config.Config) tea.Cmd {
+	return func() tea.Msg {
+		start := time.Now()
+		ctxLen := c.ContextLength(context.Background(), cfg.Model)
+		if elapsed := time.Since(start); elapsed < 500*time.Millisecond {
+			time.Sleep(500*time.Millisecond - elapsed)
+		}
+		return splashDoneMsg{contextLimit: ctxLen}
+	}
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+func waitForStream(ch <-chan backend.StreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return backend.StreamEvent{Kind: backend.EventDone}
+		}
+		return ev
+	}
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		headerH := 3
+		statusH := 1
+		inputH := 1
+		footerH := 1
+		vh := m.height - headerH - statusH - inputH - footerH
+		if vh < 3 {
+			vh = 3
+		}
+		if !m.ready {
+			m.viewport = viewport.New(m.width, vh)
+			m.ready = true
+		} else {
+			m.viewport.Width = m.width
+			m.viewport.Height = vh
+		}
+		m.input.Width = m.width - 4
+		m.refreshViewport()
+		return m, nil
+
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case tickMsg:
+		return m, tickCmd()
+
+	case splashDoneMsg:
+		m.contextLimit = msg.contextLimit
+		m.phase = phaseChat
+		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("offcode — model=%s backend=%s mode=%s", m.cfg.Model, m.cfg.Backend, m.cfg.Mode)})
+		return m, tickCmd()
+
+	case backend.StreamEvent:
+		return m.handleStreamEvent(msg)
+
+	case toolExecutedMsg:
+		return m.handleToolExecuted(msg)
+	}
+
+	return m, nil
+}
+
+func (m *Model) pushBlock(b block) {
+	m.blocks = append(m.blocks, b)
+	m.refreshViewport()
+}
+
+func (m *Model) refreshViewport() {
+	if !m.ready {
+		return
+	}
+	var parts []string
+	for _, b := range m.blocks {
+		r := renderBlock(b)
+		if r != "" {
+			parts = append(parts, r)
+		}
+	}
+	content := strings.Join(parts, "\n\n")
+	if m.viewport.Width > 0 {
+		content = lipgloss.NewStyle().Width(m.viewport.Width).Render(content)
+	}
+	m.viewport.SetContent(content)
+	m.viewport.GotoBottom()
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlD:
+		m.quitting = true
+		if m.cancelGen != nil {
+			m.cancelGen()
+		}
+		return m, tea.Quit
+
+	case tea.KeyCtrlC:
+		if m.state == stateGenerating {
+			if m.cancelGen != nil {
+				m.cancelGen()
+			}
+			return m, nil
+		}
+		m.quitting = true
+		return m, tea.Quit
+	}
+
+	if m.state == stateConfirming {
+		return m.handleConfirmKey(msg)
+	}
+
+	if m.state == stateGenerating {
+		return m, nil
+	}
+
+	switch msg.Type {
+	case tea.KeyEnter:
+		text := strings.TrimSpace(m.input.Value())
+		if text == "" {
+			return m, nil
+		}
+		m.input.SetValue("")
+		return m.submitUserMessage(text)
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pendingConfirm == nil {
+		m.state = stateIdle
+		return m, nil
+	}
+
+	switch strings.ToLower(msg.String()) {
+	case "y":
+		tc := *m.pendingConfirm
+		m.pendingConfirm = nil
+		m.state = stateGenerating
+		m.activity = "running tool: " + tc.Function.Name
+		return m, execToolCmd(tc)
+	case "n", "esc", "ctrl+c":
+		tc := *m.pendingConfirm
+		m.pendingConfirm = nil
+		return m.recordToolResult(tc, "DENIED: user declined confirmation", true)
+	}
+	return m, nil
+}
+
+func (m Model) submitUserMessage(text string) (tea.Model, tea.Cmd) {
+	m.pushBlock(block{kind: blockUser, text: text})
+	m.messages = append(m.messages, backend.Message{Role: "user", Content: text})
+	m.toolIterations = 0
+	return m.startGeneration()
+}
+
+func (m Model) startGeneration() (tea.Model, tea.Cmd) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelGen = cancel
+	m.state = stateGenerating
+	m.activity = "thinking"
+	m.turnStart = time.Now()
+	m.streamingContent = ""
+	m.streamingReason = ""
+
+	ch := m.client.StreamChatCompletion(ctx, backend.ChatRequest{
+		Model:    m.cfg.Model,
+		Messages: m.messages,
+		Tools:    tools.Definitions(),
+	})
+	m.streamEvents = ch
+
+	return m, waitForStream(ch)
+}
+
+func (m Model) handleStreamEvent(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
+	switch ev.Kind {
+	case backend.EventContent:
+		m.streamingContent += ev.ContentDelta
+		m.activity = "generating"
+		m.setStreamingAssistantBlock()
+		return m, waitForStream(m.streamEvents)
+
+	case backend.EventReasoning:
+		m.streamingReason += ev.ContentDelta
+		m.activity = "thinking"
+		m.setStreamingReasoningBlock()
+		return m, waitForStream(m.streamEvents)
+
+	case backend.EventToolCallStart:
+		m.activity = "using tool: " + ev.ToolCallName
+		return m, waitForStream(m.streamEvents)
+
+	case backend.EventError:
+		m.state = stateIdle
+		m.activity = ""
+		if errors.Is(ev.Err, context.Canceled) {
+			m.pushBlock(block{kind: blockSystem, text: "( interrupted )"})
+		} else {
+			m.pushBlock(block{kind: blockError, text: ev.Err.Error()})
+		}
+		return m, nil
+
+	case backend.EventDone:
+		return m.finishTurn(ev)
+	}
+
+	return m, waitForStream(m.streamEvents)
+}
+
+func (m *Model) setStreamingAssistantBlock() {
+	text := m.streamingContent
+	if n := len(m.blocks); n > 0 && m.blocks[n-1].kind == blockAssistant {
+		m.blocks[n-1].text = text
+	} else {
+		m.blocks = append(m.blocks, block{kind: blockAssistant, text: text})
+	}
+	m.refreshViewport()
+}
+
+func (m *Model) setStreamingReasoningBlock() {
+	text := m.streamingReason
+	n := len(m.blocks)
+	if n > 0 && m.blocks[n-1].kind == blockReasoning {
+		m.blocks[n-1].text = text
+	} else {
+		m.blocks = append(m.blocks, block{kind: blockReasoning, text: text})
+	}
+	m.refreshViewport()
+}
+
+func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
+	elapsed := time.Since(m.turnStart).Seconds()
+	if elapsed > 0 && ev.Usage.CompletionTokens > 0 {
+		m.tokensPerSec = float64(ev.Usage.CompletionTokens) / elapsed
+	}
+	m.lastUsage = ev.Usage
+
+	msg := ev.Message
+
+	if len(msg.ToolCalls) == 0 {
+		if name, argsJSON, ok := agent.ExtractPseudoToolCall(msg.Content); ok {
+			msg.ToolCalls = []backend.ToolCall{{
+				ID:       fmt.Sprintf("pseudo-%d", m.toolIterations),
+				Type:     "function",
+				Function: backend.FunctionCall{Name: name, Arguments: argsJSON},
+			}}
+			msg.Content = ""
+		}
+	}
+
+	m.messages = append(m.messages, msg)
+
+	if len(msg.ToolCalls) == 0 {
+		m.state = stateIdle
+		m.activity = ""
+		return m, nil
+	}
+
+	m.toolIterations++
+	if m.toolIterations > maxToolIterationsPerTurn {
+		m.pushBlock(block{kind: blockError, text: fmt.Sprintf("stopped after %d tool iterations without a final answer", maxToolIterationsPerTurn)})
+		m.state = stateIdle
+		m.activity = ""
+		return m, nil
+	}
+
+	m.pendingToolCalls = msg.ToolCalls
+	return m.processNextToolCall()
+}
+
+func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
+	if len(m.pendingToolCalls) == 0 {
+		return m.startGeneration()
+	}
+
+	tc := m.pendingToolCalls[0]
+	m.pendingToolCalls = m.pendingToolCalls[1:]
+
+	m.pushBlock(block{kind: blockToolCall, toolName: tc.Function.Name, toolArgs: tc.Function.Arguments})
+
+	decision := permission.Check(m.cfg.Mode, tc.Function.Name, tc.Function.Arguments)
+	if decision.Denied {
+		return m.recordToolResult(tc, "DENIED: "+decision.DenyReason, true)
+	}
+	if decision.NeedsConfirm {
+		m.state = stateConfirming
+		m.pendingConfirm = &tc
+		m.activity = "awaiting confirmation"
+		return m, nil
+	}
+
+	m.activity = "running tool: " + tc.Function.Name
+	return m, execToolCmd(tc)
+}
+
+func execToolCmd(tc backend.ToolCall) tea.Cmd {
+	return func() tea.Msg {
+		out, err := tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, output: out, err: err}
+	}
+}
+
+func (m Model) handleToolExecuted(ev toolExecutedMsg) (tea.Model, tea.Cmd) {
+	tc := backend.ToolCall{ID: ev.callID, Function: backend.FunctionCall{Name: ev.name}}
+	if ev.err != nil {
+		content := "error: " + ev.err.Error()
+		if ev.output != "" {
+			content = fmt.Sprintf("error: %v\noutput:\n%s", ev.err, ev.output)
+		}
+		return m.recordToolResult(tc, content, true)
+	}
+	return m.recordToolResult(tc, ev.output, false)
+}
+
+func (m Model) recordToolResult(tc backend.ToolCall, content string, isError bool) (tea.Model, tea.Cmd) {
+	m.messages = append(m.messages, backend.Message{
+		Role:       "tool",
+		ToolCallID: tc.ID,
+		Name:       tc.Function.Name,
+		Content:    content,
+	})
+	m.pushBlock(block{kind: blockToolResult, text: content, toolIsError: isError})
+	m.state = stateGenerating
+	return m.processNextToolCall()
+}

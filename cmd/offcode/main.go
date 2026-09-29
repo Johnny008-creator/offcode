@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Johnny008-creator/offcode/internal/agent"
 	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/tui"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := agent.Run(cfg); err != nil {
+	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "offcode:", err)
 		os.Exit(1)
 	}

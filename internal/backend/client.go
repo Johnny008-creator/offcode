@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -65,4 +66,42 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatRequest) (*Message,
 	}
 
 	return &parsed.Choices[0].Message, nil
+}
+
+// ContextLength best-effort queries an Ollama-native /api/show endpoint for
+// the model's trained context length. Returns 0 if the backend doesn't
+// support it (e.g. LM Studio) or the field can't be found.
+func (c *Client) ContextLength(ctx context.Context, model string) int {
+	root := strings.TrimSuffix(c.BaseURL, "/v1")
+
+	body, _ := json.Marshal(map[string]string{"model": model})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return 0
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		ModelInfo map[string]json.RawMessage `json:"model_info"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return 0
+	}
+
+	for key, raw := range parsed.ModelInfo {
+		if !strings.HasSuffix(key, ".context_length") {
+			continue
+		}
+		var n int
+		if err := json.Unmarshal(raw, &n); err == nil {
+			return n
+		}
+	}
+	return 0
 }

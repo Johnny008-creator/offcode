@@ -78,11 +78,51 @@ pseudo-tool-call failure mode.
 
 ## v0.1 scope
 
-In: single-binary CLI, REPL loop, Ollama + LM Studio backends (both via
-OpenAI-compatible endpoint), six tools (Read/Write/Edit/Bash/Grep/Glob),
+In: single-binary CLI, Ollama + LM Studio backends (both via
+OpenAI-compatible endpoint, streaming), six tools (Read/Write/Edit/Bash/Grep/Glob),
 three permission modes (plan/default/auto) with a static deny-list for
-obviously destructive shell commands.
+obviously destructive shell commands, and a Bubble Tea TUI (see below).
 
-Out (deliberately, for later): TUI (Bubble Tea), streaming responses,
-multi-agent/subagents, MCP, plugins/hooks, repo-map context budgeting,
-config file (flags only for now).
+Out (deliberately, for later): multi-agent/subagents, MCP, plugins/hooks,
+repo-map context budgeting, config file (flags only for now).
+
+## TUI (added 2026-09-29)
+
+Replaced the original blocking REPL with a real terminal UI
+(`internal/tui`, Bubble Tea + Bubbles + Lipgloss) once the underlying
+streaming plumbing existed to support it — a blocking request/response
+loop can't show live token-by-token output or an activity indicator.
+
+What it adds over the REPL:
+- Token-by-token streaming of both the model's answer and its `reasoning`
+  field (Ollama exposes qwen3's thinking trace as a separate delta field
+  alongside `content` — shown as a distinct "thinking:" block).
+- A status bar: elapsed session time, context usage (current/max, where
+  the backend exposes it via `/api/show`), and measured tokens/sec.
+- An activity indicator that reflects what's actually happening
+  (thinking / generating / using tool: X / awaiting confirmation) instead
+  of a silent hang.
+- Visually distinct blocks per message kind (user / assistant / reasoning
+  / tool call / tool result / error) so a long transcript doesn't run
+  together into a wall of text.
+- Ctrl+C interrupts an in-flight generation (cancels the request context,
+  returns to the input prompt) rather than only being able to kill the
+  whole process; Ctrl+D exits cleanly at any time.
+
+Implementation note that cost real debugging time: `Model` fields must
+never be a `strings.Builder` (or anything else with a no-copy guard) when
+using Bubble Tea's standard value-receiver `Update(msg) (tea.Model, tea.Cmd)`
+pattern — the whole struct gets copied by value on every message, and
+`strings.Builder` panics the moment a copied instance is written to
+("illegal use of non-zero Builder copied by value"). Streaming
+content/reasoning accumulators are plain `string` with `+=` instead.
+
+Streaming wire format notes (Ollama, confirmed by raw testing against
+`qwen3:8b`): SSE `data: {...}` lines; each chunk's `choices[0].delta` can
+carry `content` and/or `reasoning` independently; `tool_calls` deltas
+carry an `index` to accumulate by (Ollama sends the full call in one
+chunk in practice, but the accumulation logic handles fragmented
+`arguments` strings across multiple chunks too, per the OpenAI streaming
+spec, for backends that do fragment it); a final chunk with empty
+`choices` carries `usage` when the request sets
+`stream_options: {"include_usage": true}`.

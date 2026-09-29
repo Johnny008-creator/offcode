@@ -5,12 +5,12 @@ import (
 	"strings"
 )
 
-// extractPseudoToolCall handles models that ignore the tools API and instead
+// ExtractPseudoToolCall handles models that ignore the tools API and instead
 // write a tool-call-shaped JSON object directly into the message content
 // (observed with qwen2.5-coder:7b over Ollama, both /v1 and native /api/chat).
 // It only fires when the whole trimmed content is a single JSON object, to
 // avoid misfiring on prose that happens to mention JSON.
-func extractPseudoToolCall(content string) (name string, argsJSON string, ok bool) {
+func ExtractPseudoToolCall(content string) (name string, argsJSON string, ok bool) {
 	trimmed := strings.TrimSpace(content)
 	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
 		return "", "", false
