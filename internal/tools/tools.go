@@ -109,6 +109,6 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		}
 		return Glob(a.Pattern, a.Path)
 	default:
-		return "", fmt.Errorf("unknown tool: %s", name)
+		return "", fmt.Errorf("unknown tool: %q (available tools: read, write, edit, bash, grep, glob)", name)
 	}
 }

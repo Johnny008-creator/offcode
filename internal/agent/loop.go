@@ -63,6 +63,18 @@ func turn(ctx context.Context, client *backend.Client, cfg config.Config, messag
 		if err != nil {
 			return fmt.Errorf("backend request: %w", err)
 		}
+
+		if len(msg.ToolCalls) == 0 {
+			if name, argsJSON, ok := extractPseudoToolCall(msg.Content); ok {
+				msg.ToolCalls = []backend.ToolCall{{
+					ID:       fmt.Sprintf("pseudo-%d", i),
+					Type:     "function",
+					Function: backend.FunctionCall{Name: name, Arguments: argsJSON},
+				}}
+				msg.Content = ""
+			}
+		}
+
 		*messages = append(*messages, *msg)
 
 		if len(msg.ToolCalls) == 0 {

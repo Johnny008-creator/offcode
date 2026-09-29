@@ -37,8 +37,17 @@ Consequences for the design:
 - Aider's repo map (tree-sitter + PageRank) for context budgeting — not yet
   implemented in v0.1, but the next major piece of work.
 - Goose's "tool shim" idea (fallback path for models with weak native
-  function-calling) — v0.1 does not yet implement the shim itself, but the
-  tool dispatch layer is built to make adding it straightforward later.
+  function-calling) — implemented as `internal/agent/fallback.go`, added
+  2026-09-29 after live-testing against `qwen2.5-coder:7b` on Ollama
+  reproduced the exact failure the research predicted: the model returned
+  the tool call as a bare JSON object in `content` instead of the
+  structured `tool_calls` field, on both `/v1/chat/completions` and native
+  `/api/chat`. The fallback only fires when the whole trimmed content is a
+  single valid JSON object with a name-like and arguments-like key — it
+  deliberately declines (falls through to printing as a normal answer)
+  when the model garbles multiple calls into one invalid blob, rather than
+  guessing. Confirmed working end-to-end (parse → permission gate →
+  execute → result fed back to model) against qwen2.5-coder:7b.
 
 ## v0.1 scope
 
@@ -48,5 +57,5 @@ three permission modes (plan/default/auto) with a static deny-list for
 obviously destructive shell commands.
 
 Out (deliberately, for later): TUI (Bubble Tea), streaming responses,
-multi-agent/subagents, MCP, plugins/hooks, prompt-based tool-call fallback
-shim, repo-map context budgeting, config file (flags only for now).
+multi-agent/subagents, MCP, plugins/hooks, repo-map context budgeting,
+config file (flags only for now).
