@@ -24,10 +24,16 @@ go build -o bin/offcode ./cmd/offcode
 ## Run
 
 Requires Ollama or LM Studio running locally with a tool-calling-capable
-model loaded (e.g. `qwen2.5-coder:32b`, `qwen3-coder`, `devstral`).
+model loaded.
+
+Recommended default: `qwen3:8b` — validated against offcode with reliable
+native tool-calling and good speed on modest hardware (see
+[docs/DECISIONS.md](docs/DECISIONS.md) for benchmarks and AMD/Vulkan GPU
+setup notes).
 
 ```sh
-./bin/offcode -backend ollama -model qwen2.5-coder:32b
+ollama pull qwen3:8b
+./bin/offcode -backend ollama -model qwen3:8b
 ./bin/offcode -backend lmstudio -model devstral-small
 ```
 

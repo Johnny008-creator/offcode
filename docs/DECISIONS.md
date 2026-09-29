@@ -49,6 +49,33 @@ Consequences for the design:
   guessing. Confirmed working end-to-end (parse → permission gate →
   execute → result fed back to model) against qwen2.5-coder:7b.
 
+## Reference hardware and validated model (2026-09-29)
+
+Dev machine: AMD Ryzen 5 5600GT (6C/12T), 16 GB RAM, AMD Radeon RX 6500 XT
+(Navi 24, 8 GB VRAM), Arch Linux.
+
+GPU acceleration on this card does **not** work through ROCm — RX 6500 XT
+is not on Ollama's supported ROCm target list, and the `HSA_OVERRIDE_GFX_VERSION`
+workaround did not make it discoverable. What worked: installing the
+`ollama-vulkan` package (Arch `extra` repo) alongside the base `ollama`
+package. Arch's base `ollama` package ships CPU-only backend libraries
+(`/usr/lib/ollama/libggml-cpu-*.so`) with no GPU backend at all — the
+Vulkan backend (`libggml-vulkan.so`) only appears after installing
+`ollama-vulkan`, which uses the Mesa RADV driver rather than ROCm/HIP. No
+env var override needed once that package is installed; Ollama's log
+confirms with `library=Vulkan ... description="AMD Radeon RX 6500 XT
+(RADV NAVI24)"`.
+
+**Model: `qwen3:8b`** (5.2 GB) is the validated default for this hardware.
+Live-tested against offcode on GPU: ~23.5 tokens/sec generation, correct
+**native structured `tool_calls`** (not the pseudo-JSON-in-content failure
+mode seen with `qwen2.5-coder:7b` — see fallback shim above), and handled
+a multi-step tool task (glob → count → answer) cleanly in `auto` mode with
+no garbled or duplicated calls. This is the current default recommendation
+until something better is validated; `qwen2.5-coder:7b` remains useful as
+a stress-test for the fallback parser since it reliably reproduces the
+pseudo-tool-call failure mode.
+
 ## v0.1 scope
 
 In: single-binary CLI, REPL loop, Ollama + LM Studio backends (both via
