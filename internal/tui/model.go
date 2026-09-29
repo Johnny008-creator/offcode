@@ -101,7 +101,7 @@ func New(cfg config.Config) Model {
 }
 
 func Run(cfg config.Config) error {
-	p := tea.NewProgram(New(cfg), tea.WithAltScreen())
+	p := tea.NewProgram(New(cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
@@ -163,6 +163,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -196,6 +201,8 @@ func (m *Model) refreshViewport() {
 	if !m.ready {
 		return
 	}
+	wasAtBottom := m.viewport.AtBottom()
+
 	var parts []string
 	for _, b := range m.blocks {
 		r := renderBlock(b)
@@ -208,7 +215,10 @@ func (m *Model) refreshViewport() {
 		content = lipgloss.NewStyle().Width(m.viewport.Width).Render(content)
 	}
 	m.viewport.SetContent(content)
-	m.viewport.GotoBottom()
+
+	if wasAtBottom {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -229,6 +239,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.quitting = true
 		return m, tea.Quit
+
+	case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
 
 	if m.state == stateConfirming {
@@ -277,6 +292,7 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) submitUserMessage(text string) (tea.Model, tea.Cmd) {
 	m.pushBlock(block{kind: blockUser, text: text})
+	m.viewport.GotoBottom()
 	m.messages = append(m.messages, backend.Message{Role: "user", Content: text})
 	m.toolIterations = 0
 	return m.startGeneration()
