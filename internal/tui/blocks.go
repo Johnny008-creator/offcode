@@ -15,6 +15,7 @@ const (
 	blockToolResult
 	blockError
 	blockSystem
+	blockBanner
 )
 
 type block struct {
@@ -29,6 +30,8 @@ const maxResultLines = 12
 
 func renderBlock(b block) string {
 	switch b.kind {
+	case blockBanner:
+		return b.text
 	case blockUser:
 		return userLabelStyle.Render("you") + "\n" + b.text
 	case blockAssistant:

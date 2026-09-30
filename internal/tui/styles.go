@@ -65,15 +65,12 @@ var (
 	footerStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
 
-	splashTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorAccent).
-				Padding(1, 2).
-				BorderStyle(lipgloss.RoundedBorder()).
-				BorderForeground(colorAccent)
-
 	splashSubStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
+
+	splashIconStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorAccent)
 
 	confirmBoxStyle = lipgloss.NewStyle().
 			Padding(0, 1).

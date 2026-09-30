@@ -31,9 +31,9 @@ func (m Model) View() string {
 }
 
 func (m Model) splashView() string {
-	title := splashTitleStyle.Render("offcode")
-	sub := splashSubStyle.Render(fmt.Sprintf("connecting to %s (%s)…", m.cfg.BaseURL, m.cfg.Model))
-	content := lipgloss.JoinVertical(lipgloss.Center, title, "", sub)
+	banner := renderBanner(m.cfg)
+	sub := splashSubStyle.Render(fmt.Sprintf("connecting to %s…", m.cfg.BaseURL))
+	content := lipgloss.JoinVertical(lipgloss.Left, banner, "", sub)
 
 	if m.width == 0 {
 		return content
@@ -50,8 +50,6 @@ func (m Model) headerView() string {
 }
 
 func (m Model) statusView() string {
-	elapsed := time.Since(m.sessionStart).Round(time.Second)
-
 	var left string
 	switch {
 	case m.state == stateConfirming && m.pendingConfirm != nil:
@@ -68,7 +66,14 @@ func (m Model) statusView() string {
 		ctxStr = fmt.Sprintf("ctx %s/%s", formatTokens(used), formatTokens(m.contextLimit))
 	}
 
-	rightParts := []string{elapsed.String(), ctxStr}
+	var rightParts []string
+	switch {
+	case m.state != stateIdle && !m.promptStart.IsZero():
+		rightParts = append(rightParts, time.Since(m.promptStart).Round(time.Second).String())
+	case m.lastTurnDuration > 0:
+		rightParts = append(rightParts, m.lastTurnDuration.Round(time.Second).String())
+	}
+	rightParts = append(rightParts, ctxStr)
 	if m.tokensPerSec > 0 {
 		rightParts = append(rightParts, fmt.Sprintf("%.1f tok/s", m.tokensPerSec))
 	}

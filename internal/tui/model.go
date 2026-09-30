@@ -52,6 +52,8 @@ func buildSystemPrompt() string {
 
 const maxToolIterationsPerTurn = 25
 
+const appVersion = "0.1.0"
+
 type phase int
 
 const (
@@ -87,11 +89,13 @@ type Model struct {
 	width, height int
 	ready         bool
 
-	sessionStart time.Time
-	turnStart    time.Time
-	tokensPerSec float64
-	lastUsage    backend.Usage
-	contextLimit int
+	sessionStart     time.Time
+	promptStart      time.Time
+	turnStart        time.Time
+	lastTurnDuration time.Duration
+	tokensPerSec     float64
+	lastUsage        backend.Usage
+	contextLimit     int
 
 	activity string
 
@@ -205,7 +209,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case splashDoneMsg:
 		m.contextLimit = msg.contextLimit
 		m.phase = phaseChat
-		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("offcode — model=%s backend=%s mode=%s", m.cfg.Model, m.cfg.Backend, m.cfg.Mode)})
+		m.pushBlock(block{kind: blockBanner, text: renderBanner(m.cfg)})
 		return m, tickCmd()
 
 	case backend.StreamEvent:
@@ -321,6 +325,7 @@ func (m Model) submitUserMessage(text string) (tea.Model, tea.Cmd) {
 	m.viewport.GotoBottom()
 	m.messages = append(m.messages, backend.Message{Role: "user", Content: text})
 	m.toolIterations = 0
+	m.promptStart = time.Now()
 	return m.startGeneration()
 }
 
@@ -364,6 +369,9 @@ func (m Model) handleStreamEvent(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 	case backend.EventError:
 		m.state = stateIdle
 		m.activity = ""
+		if !m.promptStart.IsZero() {
+			m.lastTurnDuration = time.Since(m.promptStart)
+		}
 		if errors.Is(ev.Err, context.Canceled) {
 			m.pushBlock(block{kind: blockSystem, text: "( interrupted )"})
 		} else {
@@ -424,6 +432,9 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 	if len(msg.ToolCalls) == 0 {
 		m.state = stateIdle
 		m.activity = ""
+		if !m.promptStart.IsZero() {
+			m.lastTurnDuration = time.Since(m.promptStart)
+		}
 		return m, nil
 	}
 
@@ -432,6 +443,9 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		m.pushBlock(block{kind: blockError, text: fmt.Sprintf("stopped after %d tool iterations without a final answer", maxToolIterationsPerTurn)})
 		m.state = stateIdle
 		m.activity = ""
+		if !m.promptStart.IsZero() {
+			m.lastTurnDuration = time.Since(m.promptStart)
+		}
 		return m, nil
 	}
 
