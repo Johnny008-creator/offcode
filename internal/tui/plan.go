@@ -77,8 +77,15 @@ func (m Model) handlePlanSet(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 	for i, s := range a.Steps {
 		m.planSteps[i] = planStep{text: s}
 	}
+	m.planSteps[0].status = stepInProgress
+	m.actionsSincePlanUpdate = 0
 	m.resizeViewport()
-	return m.recordToolResult(tc, fmt.Sprintf("plan set with %d steps", len(a.Steps)), false)
+	return m.recordToolResult(tc, fmt.Sprintf(
+		"plan set with %d steps. Step 0 (%q) is marked in_progress automatically. "+
+			"When you finish a step, call plan_update(index, \"done\") — the next pending step "+
+			"will automatically be marked in_progress, so you don't need a separate call for that.",
+		len(a.Steps), a.Steps[0],
+	), false)
 }
 
 func (m Model) handlePlanUpdate(tc backend.ToolCall) (tea.Model, tea.Cmd) {
@@ -98,7 +105,43 @@ func (m Model) handlePlanUpdate(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 	}
 
 	m.planSteps[a.Index].status = status
-	return m.recordToolResult(tc, fmt.Sprintf("step %d marked %s", a.Index, a.Status), false)
+
+	result := fmt.Sprintf("step %d marked %s.", a.Index, a.Status)
+
+	if status == stepDone && m.actionsSincePlanUpdate == 0 {
+		result += " Warning: no read/write/edit/bash/grep/glob/web_search/fetch_url call happened since the plan was" +
+			" last updated — if you didn't actually do the work for this step yet, mark it back to pending or" +
+			" in_progress and do it before claiming it's done."
+	}
+	m.actionsSincePlanUpdate = 0
+
+	if status == stepDone || status == stepSkipped {
+		nextIdx := -1
+		for i := range m.planSteps {
+			if m.planSteps[i].status == stepPending {
+				nextIdx = i
+				break
+			}
+		}
+		switch {
+		case nextIdx >= 0:
+			m.planSteps[nextIdx].status = stepInProgress
+			result += fmt.Sprintf(" Step %d (%q) is now marked in_progress automatically.", nextIdx, m.planSteps[nextIdx].text)
+		default:
+			allDone := true
+			for _, s := range m.planSteps {
+				if s.status != stepDone && s.status != stepSkipped {
+					allDone = false
+					break
+				}
+			}
+			if allDone {
+				result += " All steps are now done or skipped — give the user your closing summary of what you actually did."
+			}
+		}
+	}
+
+	return m.recordToolResult(tc, result, false)
 }
 
 func (m Model) handleAskUser(tc backend.ToolCall) (tea.Model, tea.Cmd) {

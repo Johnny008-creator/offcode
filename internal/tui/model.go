@@ -38,13 +38,16 @@ updating.
 
 Planning: for any task with more than one or two obvious steps, call
 plan_set first with a short ordered list of concrete steps before doing
-anything else. Call plan_update as you start and finish each step (mark it
-in_progress, then done or skipped) so your progress stays visible. Add or
-adjust remaining steps with plan_set again if the task's scope changes
-mid-way. When you finish, give a substantive closing summary of what you
-actually did or built, not just a one-line acknowledgment — say what
-changed, where, and how the user can see or use it. Skip planning entirely
-for genuinely trivial one-step requests.
+anything else — the first step is marked in_progress for you automatically.
+As soon as you finish a step, call plan_update(index, "done") right away,
+even if the next action feels like a natural continuation — the next
+pending step gets marked in_progress for you automatically, so that's the
+only call you need per finished step. Add or adjust remaining steps with
+plan_set again if the task's scope changes mid-way. When you finish, give
+a substantive closing summary of what you actually did or built, not just
+a one-line acknowledgment — say what changed, where, and how the user can
+see or use it. Skip planning entirely for genuinely trivial one-step
+requests.
 
 Asking the user: if there's a real fork in approach and you have a
 recommendation but no clearly-forced answer (e.g. which of several valid
@@ -89,6 +92,8 @@ func buildSystemPrompt() string {
 }
 
 const maxToolIterationsPerTurn = 25
+
+const maxPlanNudges = 2
 
 const appVersion = "0.1.0"
 
@@ -148,7 +153,9 @@ type Model struct {
 	pickerAskOptions []string
 	pendingAskUser   *backend.ToolCall
 
-	planSteps []planStep
+	planSteps              []planStep
+	planNudges             int
+	actionsSincePlanUpdate int
 
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
@@ -481,8 +488,19 @@ func (m Model) submitUserMessage(text string) (tea.Model, tea.Cmd) {
 	m.viewport.GotoBottom()
 	m.messages = append(m.messages, backend.Message{Role: "user", Content: text})
 	m.toolIterations = 0
+	m.planNudges = 0
 	m.promptStart = time.Now()
 	return m.startGeneration()
+}
+
+func (m Model) incompletePlanSteps() []string {
+	var out []string
+	for i, s := range m.planSteps {
+		if s.status != stepDone && s.status != stepSkipped {
+			out = append(out, fmt.Sprintf("%d: %s", i, s.text))
+		}
+	}
+	return out
 }
 
 func (m Model) startGeneration() (tea.Model, tea.Cmd) {
@@ -593,6 +611,18 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 	m.messages = append(m.messages, msg)
 
 	if len(msg.ToolCalls) == 0 {
+		if incomplete := m.incompletePlanSteps(); len(incomplete) > 0 && m.planNudges < maxPlanNudges {
+			m.planNudges++
+			m.pushBlock(block{kind: blockSystem, text: "( plan has unfinished steps — asking the model to confirm or continue )"})
+			m.messages = append(m.messages, backend.Message{
+				Role: "user",
+				Content: fmt.Sprintf(
+					"Your plan still shows these steps as not done: %s. If you actually finished them, call plan_update for each one now. If not, finish them before answering.",
+					strings.Join(incomplete, "; "),
+				),
+			})
+			return m.startGeneration()
+		}
 		m.state = stateIdle
 		m.activity = ""
 		if !m.promptStart.IsZero() {
@@ -678,6 +708,7 @@ func execToolCmd(tc backend.ToolCall) tea.Cmd {
 }
 
 func (m Model) handleToolExecuted(ev toolExecutedMsg) (tea.Model, tea.Cmd) {
+	m.actionsSincePlanUpdate++
 	tc := backend.ToolCall{ID: ev.callID, Function: backend.FunctionCall{Name: ev.name}}
 	if ev.err != nil {
 		content := "error: " + ev.err.Error()
