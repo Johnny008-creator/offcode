@@ -33,7 +33,50 @@ func (m Model) View() string {
 		footer = footerStyle.Render(" ctrl+d exit · ctrl+c stop/exit · enter send · ↑↓/pgup/pgdn scroll · ctrl+t thinking · ctrl+y copy · /settings")
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, bottom, footer)
+	parts := []string{header}
+	if plan := m.planView(); plan != "" {
+		parts = append(parts, plan)
+	}
+	parts = append(parts, body, bottom, footer)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (m Model) planView() string {
+	if len(m.planSteps) == 0 {
+		return ""
+	}
+	steps := m.planSteps
+	more := 0
+	if len(steps) > 8 {
+		more = len(steps) - 8
+		steps = steps[:8]
+	}
+
+	var lines []string
+	lines = append(lines, strings.Repeat("─", max(0, m.width)))
+	lines = append(lines, headerStyle.Render("Plan"))
+	for _, s := range steps {
+		icon := "○"
+		style := subHeaderStyle
+		switch s.status {
+		case stepInProgress:
+			icon = "●"
+			style = assistantLabelStyle
+		case stepDone:
+			icon = "✓"
+			style = resultLabelStyle
+		case stepSkipped:
+			icon = "✗"
+			style = systemStyle
+		}
+		lines = append(lines, style.Render(icon+" "+s.text))
+	}
+	if more > 0 {
+		lines = append(lines, systemStyle.Render(fmt.Sprintf("… (%d more)", more)))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) pickerView() string {
@@ -45,10 +88,21 @@ func (m Model) pickerView() string {
 		title = "Permission mode"
 	case pickerModel:
 		title = "Select model"
+	case pickerAskUser:
+		title = "offcode is asking"
+	}
+
+	width := m.width - 4
+	if width < 10 {
+		width = 10
 	}
 
 	var lines []string
 	lines = append(lines, headerStyle.Render(title))
+	if m.picker == pickerAskUser && m.pickerQuestion != "" {
+		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.pickerQuestion))
+		lines = append(lines, "")
+	}
 
 	switch {
 	case m.picker == pickerModel && m.pickerLoading:
@@ -66,10 +120,6 @@ func (m Model) pickerView() string {
 	}
 
 	box := strings.Join(lines, "\n")
-	width := m.width - 4
-	if width < 10 {
-		width = 10
-	}
 	return confirmBoxStyle.Width(width).Render(box)
 }
 

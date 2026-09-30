@@ -44,6 +44,16 @@ func Definitions() []backend.Tool {
 			Description: "Find files under a directory whose relative path matches a glob pattern (e.g. *.go, cmd/*/main.go).",
 			Parameters:  schema(`{"pattern":{"type":"string"},"path":{"type":"string","description":"Directory to search, defaults to current directory"}}`, "pattern"),
 		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name:        "web_search",
+			Description: "Search the web for up-to-date information. Returns titles, URLs, and short snippets for the top results.",
+			Parameters:  schema(`{"query":{"type":"string"},"max_results":{"type":"integer","description":"Defaults to 5"}}`, "query"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name:        "fetch_url",
+			Description: "Fetch a URL and return its readable text content (HTML tags stripped). Use after web_search to read a specific page in full.",
+			Parameters:  schema(`{"url":{"type":"string"}}`, "url"),
+		}},
 	}
 }
 
@@ -109,7 +119,24 @@ func Dispatch(name string, argsJSON string) (string, error) {
 			a.Path = "."
 		}
 		return Glob(a.Pattern, a.Path)
+	case "web_search":
+		var a struct {
+			Query      string `json:"query"`
+			MaxResults int    `json:"max_results"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+			return "", err
+		}
+		return WebSearch(a.Query, a.MaxResults)
+	case "fetch_url":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+			return "", err
+		}
+		return FetchURL(a.URL)
 	default:
-		return "", fmt.Errorf("unknown tool: %q (available tools: read, write, edit, bash, grep, glob)", name)
+		return "", fmt.Errorf("unknown tool: %q (available tools: read, write, edit, bash, grep, glob, web_search, fetch_url)", name)
 	}
 }

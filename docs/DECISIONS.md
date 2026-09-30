@@ -174,3 +174,68 @@ app. Ctrl+Y sidesteps the whole problem instead of chasing it: it copies
 the full transcript (ANSI-stripped) via an OSC 52 escape sequence written
 directly to stdout, which works even over SSH and needs no selection at
 all.
+
+## Planning, clarifying questions, and web search (2026-09-30)
+
+User's framing: the model would just build something (often low quality —
+an HTML calculator with zero CSS) and stop, with no visibility into
+whether it had a plan, no way for it to ask when genuinely unsure between
+approaches, and no way to check anything against the live internet. Four
+additions, all wired through new "meta" tools that the TUI intercepts
+itself in `processNextToolCall` rather than routing through
+`tools.Dispatch` (they mutate session/UI state, not the filesystem):
+
+- **`plan_set(steps)` / `plan_update(index, status)`** (`internal/tui/plan.go`).
+  The system prompt tells the model to plan first for non-trivial tasks and
+  update status as it goes. Rendered as a persistent panel between the
+  header and the transcript (`planView()` in view.go) — not a scrolling
+  block, so it stays visible regardless of scroll position. Gotcha found
+  live: building the panel's multi-line box with
+  `someStyle.Width(w).Render(joinedLines)` silently reflowed the content
+  and dropped the icon prefix from every line but the first — lipgloss's
+  width-wrapping doesn't play well with pre-joined multi-line ANSI-styled
+  text. Fixed by switching to the same pattern `headerView()` already
+  used: build the separator line manually with `strings.Repeat` and just
+  `strings.Join` the lines, no `Width().Render()` on the whole block.
+  Worth remembering if another multi-line panel gets added later.
+
+- **`ask_user(question, options, recommended_index)`** (also plan.go).
+  Opens the existing picker UI (a new `pickerAskUser` kind) showing the
+  question and options, recommended one pre-selected and labeled; the
+  chosen option's text becomes the tool's result, so the model's next
+  turn sees the actual answer and continues from there. No freeform
+  text-entry escape hatch in v1 — options-only keeps the implementation
+  and the model's usage of it simpler, and covers what was actually
+  asked for (a real selection with a recommendation, not open Q&A).
+
+- **Web search / fetch**, backed by a **self-hosted SearXNG** instance
+  (user's explicit choice over Brave API or DuckDuckGo scraping — fits
+  the project's local-first stance, and the user wanted to "not even
+  know it's there"). Set up once, not part of offcode's own code:
+  ```
+  docker run -d --name offcode-searxng --restart unless-stopped \
+    -p 127.0.0.1:8888:8080 \
+    -v ~/.offcode/searxng:/etc/searxng \
+    searxng/searxng:latest
+  ```
+  `--restart unless-stopped` is what makes it invisible going forward —
+  survives reboots with no action needed. The default settings.yml only
+  enables the `html` output format (public-instance anti-scraping
+  posture); `~/.offcode/searxng/settings.yml` was patched to add
+  `search.formats: [html, json]` and set `server.limiter: false` (fine
+  for a single-user localhost-only instance, not appropriate for a
+  public one). `internal/tools/web.go` hits `http://127.0.0.1:8888/search
+  ?format=json` for `web_search`, and does a crude tag-strip for
+  `fetch_url`. Both are read-only in `permission.go` — no confirmation
+  needed in any mode, same tier as grep/glob.
+
+- **Output quality policy**: a direct system-prompt instruction to give
+  UI/web output real, modern styling rather than bare markup, plus a
+  "web results didn't answer it? fetch_url the page, don't guess from
+  training data" instruction (caught live: asked for the current Go
+  version, got real search results back, and the model still answered
+  from stale training-data memory instead of fetching go.dev/dl to
+  check). Live-tested the styling instruction against qwen3:8b building
+  an HTML calculator: dark card UI, CSS grid, hover states, proper color
+  palette — a real, visible improvement over the unstyled output that
+  prompted this whole round of changes.

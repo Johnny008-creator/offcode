@@ -19,6 +19,7 @@ const (
 	pickerEffort
 	pickerMode
 	pickerModel
+	pickerAskUser
 )
 
 var effortLevels = []backend.ThinkLevel{
@@ -123,6 +124,9 @@ func refreshContextCmd(c *backend.Client, model string) tea.Cmd {
 func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
+		if m.picker == pickerAskUser {
+			return m.cancelAskUser()
+		}
 		return m.closePicker(""), nil
 
 	case tea.KeyUp:
@@ -199,6 +203,9 @@ func (m Model) applyPickerSelection() (tea.Model, tea.Cmd) {
 			return m2, refreshContextCmd(m.client, newModel)
 		}
 		return m.closePicker(""), nil
+
+	case pickerAskUser:
+		return m.resolveAskUser()
 	}
 	return m, nil
 }

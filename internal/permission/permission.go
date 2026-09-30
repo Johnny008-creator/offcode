@@ -11,9 +11,11 @@ const (
 )
 
 var readOnlyTools = map[string]bool{
-	"read": true,
-	"grep": true,
-	"glob": true,
+	"read":       true,
+	"grep":       true,
+	"glob":       true,
+	"web_search": true,
+	"fetch_url":  true,
 }
 
 var deniedBashSubstrings = []string{
@@ -46,7 +48,7 @@ func Check(mode Mode, toolName string, rawArgs string) Decision {
 	}
 
 	if mode == ModePlan && !readOnlyTools[toolName] {
-		return Decision{Denied: true, DenyReason: "plan mode only allows read-only tools (read, grep, glob)"}
+		return Decision{Denied: true, DenyReason: "plan mode only allows read-only tools (read, grep, glob, web_search, fetch_url)"}
 	}
 
 	if mode == ModeAuto || readOnlyTools[toolName] {

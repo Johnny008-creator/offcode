@@ -24,8 +24,9 @@ import (
 )
 
 const systemPromptTemplate = `You are offcode, a local coding assistant running against an on-device model.
-You have tools to read, write, and edit files, run shell commands, and search the codebase.
-Use tools when you need real information instead of guessing. Keep responses concise.
+You have tools to read, write, and edit files, run shell commands, search the
+codebase, search the web, and fetch a URL's content. Use tools when you need
+real information instead of guessing. Keep responses concise.
 
 For an EXISTING file: prefer the edit tool over write. If edit fails (e.g.
 old_string not found or not unique), read the file first to see its real
@@ -34,6 +35,34 @@ haven't just read, since write replaces the entire file and a guessed
 rewrite will silently discard content you never saw. Only use write
 directly for brand-new files or when you've just read the file you're
 updating.
+
+Planning: for any task with more than one or two obvious steps, call
+plan_set first with a short ordered list of concrete steps before doing
+anything else. Call plan_update as you start and finish each step (mark it
+in_progress, then done or skipped) so your progress stays visible. Add or
+adjust remaining steps with plan_set again if the task's scope changes
+mid-way. When you finish, give a substantive closing summary of what you
+actually did or built, not just a one-line acknowledgment — say what
+changed, where, and how the user can see or use it. Skip planning entirely
+for genuinely trivial one-step requests.
+
+Asking the user: if there's a real fork in approach and you have a
+recommendation but no clearly-forced answer (e.g. which of several valid
+designs, which library, which UI layout), call ask_user with the options
+and your recommended_index instead of silently guessing. Don't ask about
+things you can reasonably decide yourself — that's just friction.
+
+Building UI/web output (HTML/CSS/frontend code): always give it real,
+modern styling — sensible typography, spacing, and color, not bare
+unstyled markup. A finished page or app should look deliberately designed,
+not like a first draft. If you're not confident it looks good, iterate on
+the CSS before calling the task done.
+
+Web search and fetch_url: your training data can be stale or wrong about
+anything time-sensitive (current versions, prices, recent events, current
+best practices). When that matters, use web_search, and if the result
+snippets don't directly answer the question, use fetch_url on the most
+relevant result instead of falling back to a training-data guess.
 
 Environment you are actually running in — use these, don't guess or assume
 a different OS or layout (e.g. never invent macOS-style paths like
@@ -110,11 +139,16 @@ type Model struct {
 	showThinking bool
 	think        backend.ThinkLevel
 
-	picker         pickerKind
-	pickerItems    []string
-	pickerCursor   int
-	pickerReturnTo pickerKind
-	pickerLoading  bool
+	picker           pickerKind
+	pickerItems      []string
+	pickerCursor     int
+	pickerReturnTo   pickerKind
+	pickerLoading    bool
+	pickerQuestion   string
+	pickerAskOptions []string
+	pendingAskUser   *backend.ToolCall
+
+	planSteps []planStep
 
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
@@ -274,7 +308,15 @@ func (m *Model) resizeViewport() {
 	if m.picker != pickerNone {
 		bottomH = pickerReservedHeight
 	}
-	vh := m.height - headerH - bottomH - footerH
+	planH := 0
+	if n := len(m.planSteps); n > 0 {
+		shown := n
+		if shown > 8 {
+			shown = 8
+		}
+		planH = shown + 3
+	}
+	vh := m.height - headerH - bottomH - footerH - planH
 	if vh < 3 {
 		vh = 3
 	}
@@ -455,7 +497,7 @@ func (m Model) startGeneration() (tea.Model, tea.Cmd) {
 	req := backend.ChatRequest{
 		Model:    m.cfg.Model,
 		Messages: m.messages,
-		Tools:    tools.Definitions(),
+		Tools:    append(tools.Definitions(), metaToolDefinitions()...),
 	}
 
 	var ch <-chan backend.StreamEvent
@@ -583,6 +625,15 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 	m.pendingToolCalls = m.pendingToolCalls[1:]
 
 	m.pushBlock(block{kind: blockToolCall, toolName: tc.Function.Name, toolArgs: tc.Function.Arguments})
+
+	switch tc.Function.Name {
+	case "plan_set":
+		return m.handlePlanSet(tc)
+	case "plan_update":
+		return m.handlePlanUpdate(tc)
+	case "ask_user":
+		return m.handleAskUser(tc)
+	}
 
 	decision := permission.Check(m.cfg.Mode, tc.Function.Name, tc.Function.Arguments)
 
