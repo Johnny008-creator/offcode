@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +26,14 @@ import (
 const systemPromptTemplate = `You are offcode, a local coding assistant running against an on-device model.
 You have tools to read, write, and edit files, run shell commands, and search the codebase.
 Use tools when you need real information instead of guessing. Keep responses concise.
+
+For an EXISTING file: prefer the edit tool over write. If edit fails (e.g.
+old_string not found or not unique), read the file first to see its real
+current content before trying again — never call write on a file you
+haven't just read, since write replaces the entire file and a guessed
+rewrite will silently discard content you never saw. Only use write
+directly for brand-new files or when you've just read the file you're
+updating.
 
 Environment you are actually running in — use these, don't guess or assume
 a different OS or layout (e.g. never invent macOS-style paths like
@@ -110,6 +119,7 @@ type Model struct {
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
 	toolIterations   int
+	readPaths        map[string]bool
 
 	streamEvents <-chan backend.StreamEvent
 	cancelGen    context.CancelFunc
@@ -136,6 +146,7 @@ func New(cfg config.Config) Model {
 		spinner:      sp,
 		sessionStart: time.Now(),
 		showThinking: true,
+		readPaths:    map[string]bool{},
 	}
 }
 
@@ -574,6 +585,18 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 	m.pushBlock(block{kind: blockToolCall, toolName: tc.Function.Name, toolArgs: tc.Function.Arguments})
 
 	decision := permission.Check(m.cfg.Mode, tc.Function.Name, tc.Function.Arguments)
+
+	if tc.Function.Name == "write" && !decision.Denied {
+		path := extractPath(tc.Function.Arguments)
+		if path != "" && !m.readPaths[path] {
+			if info, err := os.Stat(path); err == nil && !info.IsDir() {
+				decision.NeedsConfirm = true
+				m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf(
+					"warning: %s exists and hasn't been read in this session — forcing confirmation even in auto mode, since overwriting it would discard content the model hasn't seen", path)})
+			}
+		}
+	}
+
 	if decision.Denied {
 		return m.recordToolResult(tc, "DENIED: "+decision.DenyReason, true)
 	}
@@ -588,10 +611,18 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 	return m, execToolCmd(tc)
 }
 
+func extractPath(argsJSON string) string {
+	var a struct {
+		Path string `json:"path"`
+	}
+	_ = json.Unmarshal([]byte(argsJSON), &a)
+	return a.Path
+}
+
 func execToolCmd(tc backend.ToolCall) tea.Cmd {
 	return func() tea.Msg {
 		out, err := tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
-		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, output: out, err: err}
+		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, path: extractPath(tc.Function.Arguments), output: out, err: err}
 	}
 }
 
@@ -603,6 +634,9 @@ func (m Model) handleToolExecuted(ev toolExecutedMsg) (tea.Model, tea.Cmd) {
 			content = fmt.Sprintf("error: %v\noutput:\n%s", ev.err, ev.output)
 		}
 		return m.recordToolResult(tc, content, true)
+	}
+	if (ev.name == "read" || ev.name == "write") && ev.path != "" {
+		m.readPaths[ev.path] = true
 	}
 	return m.recordToolResult(tc, ev.output, false)
 }
