@@ -23,11 +23,54 @@ func (m Model) View() string {
 
 	header := m.headerView()
 	body := m.viewport.View()
-	status := m.statusView()
-	input := m.inputView()
-	footer := footerStyle.Render(" ctrl+d exit · ctrl+c stop/exit · enter send · ↑↓/pgup/pgdn scroll · ctrl+t toggle thinking")
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, status, input, footer)
+	var bottom, footer string
+	if m.picker != pickerNone {
+		bottom = m.pickerView()
+		footer = footerStyle.Render(" ↑↓ navigate · enter select · esc back")
+	} else {
+		bottom = lipgloss.JoinVertical(lipgloss.Left, m.statusView(), m.inputView())
+		footer = footerStyle.Render(" ctrl+d exit · ctrl+c stop/exit · enter send · ↑↓/pgup/pgdn scroll · ctrl+t thinking · ctrl+y copy · /settings")
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, bottom, footer)
+}
+
+func (m Model) pickerView() string {
+	title := "Settings"
+	switch m.picker {
+	case pickerEffort:
+		title = "Reasoning effort"
+	case pickerMode:
+		title = "Permission mode"
+	case pickerModel:
+		title = "Select model"
+	}
+
+	var lines []string
+	lines = append(lines, headerStyle.Render(title))
+
+	switch {
+	case m.picker == pickerModel && m.pickerLoading:
+		lines = append(lines, m.spinner.View()+" loading models…")
+	case len(m.pickerItems) == 0:
+		lines = append(lines, systemStyle.Render("(nothing to show)"))
+	default:
+		for i, item := range m.pickerItems {
+			if i == m.pickerCursor {
+				lines = append(lines, assistantLabelStyle.Render("> "+item))
+			} else {
+				lines = append(lines, subHeaderStyle.Render("  "+item))
+			}
+		}
+	}
+
+	box := strings.Join(lines, "\n")
+	width := m.width - 4
+	if width < 10 {
+		width = 10
+	}
+	return confirmBoxStyle.Width(width).Render(box)
 }
 
 func (m Model) splashView() string {

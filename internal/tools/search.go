@@ -32,14 +32,16 @@ func walkFiles(root string, visit func(path string) error) error {
 	})
 }
 
-func Grep(pattern, root string) (string, error) {
+func Grep(pattern, root string, maxMatches int) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", fmt.Errorf("invalid pattern: %w", err)
 	}
+	if maxMatches <= 0 {
+		maxMatches = 200
+	}
 
 	var matches []string
-	const maxMatches = 200
 
 	err = walkFiles(root, func(path string) error {
 		if len(matches) >= maxMatches {

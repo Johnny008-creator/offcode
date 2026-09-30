@@ -99,6 +99,13 @@ type Model struct {
 
 	activity     string
 	showThinking bool
+	think        backend.ThinkLevel
+
+	picker         pickerKind
+	pickerItems    []string
+	pickerCursor   int
+	pickerReturnTo pickerKind
+	pickerLoading  bool
 
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
@@ -177,21 +184,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		headerH := 3
-		statusH := 1
-		inputH := 1
-		footerH := 1
-		vh := m.height - headerH - statusH - inputH - footerH
-		if vh < 3 {
-			vh = 3
-		}
 		if !m.ready {
-			m.viewport = viewport.New(m.width, vh)
+			m.viewport = viewport.New(m.width, 3)
 			m.ready = true
-		} else {
-			m.viewport.Width = m.width
-			m.viewport.Height = vh
 		}
+		m.resizeViewport()
 		m.input.Width = m.width - 4
 		m.refreshViewport()
 		return m, nil
@@ -218,9 +215,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolExecutedMsg:
 		return m.handleToolExecuted(msg)
+
+	case modelsLoadedMsg:
+		if m.picker != pickerModel {
+			return m, nil
+		}
+		m.pickerLoading = false
+		if msg.err != nil {
+			m.picker = pickerNone
+			m.pushBlock(block{kind: blockError, text: "failed to list models: " + msg.err.Error()})
+			return m, nil
+		}
+		m.pickerItems = msg.models
+		m.pickerCursor = 0
+		for i, name := range msg.models {
+			if name == m.cfg.Model {
+				m.pickerCursor = i
+			}
+		}
+		return m, nil
+
+	case contextRefreshedMsg:
+		m.contextLimit = msg.limit
+		return m, nil
+
+	case clipboardCopiedMsg:
+		if msg.err != nil {
+			m.pushBlock(block{kind: blockError, text: "clipboard copy failed: " + msg.err.Error()})
+		} else if msg.chars > 0 {
+			m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("copied transcript to clipboard (%d chars)", msg.chars)})
+		}
+		return m, nil
 	}
 
 	return m, nil
+}
+
+const pickerReservedHeight = 10
+
+func (m *Model) resizeViewport() {
+	if !m.ready {
+		return
+	}
+	headerH := 3
+	footerH := 1
+	bottomH := 2
+	if m.picker != pickerNone {
+		bottomH = pickerReservedHeight
+	}
+	vh := m.height - headerH - bottomH - footerH
+	if vh < 3 {
+		vh = 3
+	}
+	m.viewport.Width = m.width
+	m.viewport.Height = vh
 }
 
 func (m *Model) pushBlock(b block) {
@@ -274,15 +322,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 
-	case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-
 	case tea.KeyCtrlT:
 		m.showThinking = !m.showThinking
 		m.refreshViewport()
 		return m, nil
+
+	case tea.KeyCtrlY:
+		return m, copyToClipboardCmd(m.transcriptPlainText())
+	}
+
+	if m.picker != pickerNone {
+		return m.handlePickerKey(msg)
+	}
+
+	switch msg.Type {
+	case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
 
 	if m.state == stateConfirming {
@@ -352,17 +409,16 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 
 	case "/settings":
-		thinking := "off"
-		if m.showThinking {
-			thinking = "on"
-		}
-		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf(
-			"settings — thinking=%s (/thinking or ctrl+t)  model=%s  backend=%s  mode=%s",
-			thinking, m.cfg.Model, m.cfg.Backend, m.cfg.Mode,
-		)})
+		m.openSettingsPicker()
+
+	case "/model":
+		return m.openModelPicker(pickerNone)
+
+	case "/effort":
+		m.openEffortPicker(pickerNone)
 
 	default:
-		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /thinking or /settings)"})
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, or /thinking)"})
 	}
 	return m, nil
 }
@@ -385,11 +441,18 @@ func (m Model) startGeneration() (tea.Model, tea.Cmd) {
 	m.streamingContent = ""
 	m.streamingReason = ""
 
-	ch := m.client.StreamChatCompletion(ctx, backend.ChatRequest{
+	req := backend.ChatRequest{
 		Model:    m.cfg.Model,
 		Messages: m.messages,
 		Tools:    tools.Definitions(),
-	})
+	}
+
+	var ch <-chan backend.StreamEvent
+	if m.cfg.Backend == "ollama" {
+		ch = m.client.StreamChatNative(ctx, req, m.think)
+	} else {
+		ch = m.client.StreamChatCompletion(ctx, req)
+	}
 	m.streamEvents = ch
 
 	return m, waitForStream(ch)

@@ -14,3 +14,12 @@ type toolExecutedMsg struct {
 }
 
 type tickMsg time.Time
+
+type modelsLoadedMsg struct {
+	models []string
+	err    error
+}
+
+type contextRefreshedMsg struct {
+	limit int
+}

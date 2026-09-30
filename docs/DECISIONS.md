@@ -126,3 +126,51 @@ chunk in practice, but the accumulation logic handles fragmented
 spec, for backends that do fragment it); a final chunk with empty
 `choices` carries `usage` when the request sets
 `stream_options: {"include_usage": true}`.
+
+## Ollama backend switched to its native /api/chat (2026-09-30)
+
+The OpenAI-compatible `/v1/chat/completions` endpoint silently ignores a
+`"think"` field — confirmed by live testing: setting `think:false` on
+`/v1` still produced a full reasoning trace. Ollama's **native**
+`/api/chat` honors `think` (bool, or `"low"`/`"medium"`/`"high"` for
+models that support graded effort) and this is the only way to control
+whether a hybrid-reasoning model like qwen3 generates a chain-of-thought
+at all — which matters a lot for latency, since the reasoning trace is
+often the majority of the tokens generated for a simple request.
+
+Consequence: when `cfg.Backend == "ollama"`, offcode now always streams
+via the native endpoint (`internal/backend/native.go`) instead of `/v1`.
+LM Studio (and anything else) still goes through the OpenAI-compatible
+path — `/v1` remains the portable common denominator for non-Ollama
+backends, per the original design decision above; only Ollama gets the
+native fast-path, since the think control is Ollama-specific anyway.
+
+Wire format differences from `/v1` worth remembering: native streaming is
+newline-delimited JSON (one full object per line), not SSE `data:` lines,
+with no `[DONE]` sentinel (just EOF); the reasoning field is called
+`thinking`, not `reasoning`; a tool call's `function.arguments` arrives as
+a real JSON **object**, not a JSON-encoded string; tool result messages
+sent back don't need a `tool_call_id` at all (verified by a round-trip
+test — the model continued correctly without one). `/api/tags` lists
+locally available models (used by the `/model` picker); `/api/show`
+(already used for context-length lookup) is native too.
+
+## Settings as an interactive picker, not typed flags (2026-09-30)
+
+`/settings`, `/model`, and `/effort` open a real navigable list (↑/↓,
+enter, esc) instead of requiring the user to remember flag syntax —
+requested directly after the first round of slash commands felt like
+"shortcuts, not a real choice." `/settings` nests `/effort` and a
+permission-mode picker inside it; `/model` fetches the backend's actual
+model list live (`Client.ListModels`) rather than a hardcoded guess.
+Picking a different model triggers a background context-length refresh
+so the status bar's `ctx X/Y` stays accurate.
+
+Copy-paste note: Bubble Tea's mouse-motion capture was removed earlier
+for breaking terminal-native text selection, but scrolling the viewport
+still repaints the alt-screen and clears any selection the user made —
+inherent to how terminal selection works, not fixable from inside the
+app. Ctrl+Y sidesteps the whole problem instead of chasing it: it copies
+the full transcript (ANSI-stripped) via an OSC 52 escape sequence written
+directly to stdout, which works even over SSH and needs no selection at
+all.

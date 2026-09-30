@@ -37,7 +37,7 @@ func Definitions() []backend.Tool {
 		{Type: "function", Function: backend.FunctionDef{
 			Name:        "grep",
 			Description: "Search for a regular expression pattern across files under a directory.",
-			Parameters:  schema(`{"pattern":{"type":"string"},"path":{"type":"string","description":"Directory to search, defaults to current directory"}}`, "pattern"),
+			Parameters:  schema(`{"pattern":{"type":"string"},"path":{"type":"string","description":"Directory to search, defaults to current directory"},"max_matches":{"type":"integer","description":"Maximum number of matches to return, defaults to 200"}}`, "pattern"),
 		}},
 		{Type: "function", Function: backend.FunctionDef{
 			Name:        "glob",
@@ -86,8 +86,9 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		return Bash(a.Command)
 	case "grep":
 		var a struct {
-			Pattern string `json:"pattern"`
-			Path    string `json:"path"`
+			Pattern    string `json:"pattern"`
+			Path       string `json:"path"`
+			MaxMatches int    `json:"max_matches"`
 		}
 		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
 			return "", err
@@ -95,7 +96,7 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		if a.Path == "" {
 			a.Path = "."
 		}
-		return Grep(a.Pattern, a.Path)
+		return Grep(a.Pattern, a.Path, a.MaxMatches)
 	case "glob":
 		var a struct {
 			Pattern string `json:"pattern"`

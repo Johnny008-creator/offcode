@@ -105,3 +105,68 @@ func (c *Client) ContextLength(ctx context.Context, model string) int {
 	}
 	return 0
 }
+
+// ListModels returns the model names the backend currently has available.
+// Ollama exposes its native /api/tags; other OpenAI-compatible backends
+// (LM Studio, llama.cpp server) are queried via the standard GET /models.
+func (c *Client) ListModels(ctx context.Context, backendKind string) ([]string, error) {
+	if backendKind == "ollama" {
+		return c.listModelsOllama(ctx)
+	}
+	return c.listModelsOpenAI(ctx)
+}
+
+func (c *Client) listModelsOllama(ctx context.Context) ([]string, error) {
+	root := strings.TrimSuffix(c.BaseURL, "/v1")
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(parsed.Models))
+	for i, m := range parsed.Models {
+		names[i] = m.Name
+	}
+	return names, nil
+}
+
+func (c *Client) listModelsOpenAI(ctx context.Context) ([]string, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(parsed.Data))
+	for i, m := range parsed.Data {
+		names[i] = m.ID
+	}
+	return names, nil
+}

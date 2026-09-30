@@ -12,12 +12,22 @@ Design rationale and what's deliberately out of scope for v0.1 live in
 v0.1: a terminal UI (Bubble Tea) with streaming responses, a live activity
 indicator (thinking / generating / using tool: X), a status bar (elapsed
 time, context usage, tokens/sec), six tools (read, write, edit, bash, grep,
-glob), three permission modes, Ollama/LM Studio backends, and a fallback
-parser for models that emit tool calls as plain-text JSON instead of using
-the structured `tool_calls` field (confirmed necessary in practice against
-`qwen2.5-coder:7b`). No context compaction yet.
+glob), three permission modes, Ollama (native API) and LM Studio (OpenAI-
+compatible) backends, and a fallback parser for models that emit tool calls
+as plain-text JSON instead of using the structured `tool_calls` field
+(confirmed necessary in practice against `qwen2.5-coder:7b`). No context
+compaction yet.
 
-Ctrl+C interrupts an in-flight generation; Ctrl+D exits.
+**Keys:** Ctrl+D exit · Ctrl+C interrupt generation (or exit if idle) ·
+↑/↓/PgUp/PgDn scroll transcript · Ctrl+T toggle the thinking/reasoning
+trace · Ctrl+Y copy the whole transcript to clipboard (OSC 52, works over
+SSH, no text selection needed).
+
+**Slash commands:** `/settings` — interactive menu (thinking display,
+reasoning effort, permission mode, model) · `/model` — pick a different
+model from what the backend has loaded · `/effort` — set reasoning effort
+(`default`/`off`/`low`/`medium`/`high`, Ollama only) · `/thinking [on|off]`
+— quick toggle without opening the menu.
 
 ## Build
 
@@ -47,5 +57,3 @@ Flags:
 - `-model` — required, model name as known to the backend
 - `-base-url` — override the backend's default OpenAI-compatible URL
 - `-mode` — `plan` (read-only), `default` (confirm writes/bash), or `auto`
-
-Type `/exit` to quit.
