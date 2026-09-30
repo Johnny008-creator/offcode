@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,9 +22,33 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/tools"
 )
 
-const systemPrompt = `You are offcode, a local coding assistant running against an on-device model.
+const systemPromptTemplate = `You are offcode, a local coding assistant running against an on-device model.
 You have tools to read, write, and edit files, run shell commands, and search the codebase.
-Use tools when you need real information instead of guessing. Keep responses concise.`
+Use tools when you need real information instead of guessing. Keep responses concise.
+
+Environment you are actually running in — use these, don't guess or assume
+a different OS or layout (e.g. never invent macOS-style paths like
+/Users/<name> unless the operating system below is darwin):
+- Operating system: %s
+- Shell for the bash tool: %s
+- Home directory: %s
+- Current working directory: %s`
+
+func buildSystemPrompt() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "unknown"
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "unknown"
+	}
+	shell := "sh -c"
+	if runtime.GOOS == "windows" {
+		shell = "cmd /C"
+	}
+	return fmt.Sprintf(systemPromptTemplate, runtime.GOOS, shell, home, cwd)
+}
 
 const maxToolIterationsPerTurn = 25
 
@@ -91,7 +117,7 @@ func New(cfg config.Config) Model {
 	return Model{
 		cfg:          cfg,
 		client:       backend.NewClient(cfg.BaseURL),
-		messages:     []backend.Message{{Role: "system", Content: systemPrompt}},
+		messages:     []backend.Message{{Role: "system", Content: buildSystemPrompt()}},
 		phase:        phaseSplash,
 		state:        stateIdle,
 		input:        ti,
