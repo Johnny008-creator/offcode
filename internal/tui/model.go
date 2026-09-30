@@ -97,7 +97,8 @@ type Model struct {
 	lastUsage        backend.Usage
 	contextLimit     int
 
-	activity string
+	activity     string
+	showThinking bool
 
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
@@ -127,11 +128,16 @@ func New(cfg config.Config) Model {
 		input:        ti,
 		spinner:      sp,
 		sessionStart: time.Now(),
+		showThinking: true,
 	}
 }
 
 func Run(cfg config.Config) error {
-	p := tea.NewProgram(New(cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Deliberately no mouse motion capture: it would let the wheel scroll
+	// the viewport, but it also disables the terminal's native click-drag
+	// text selection, which matters more (copying output is a core use
+	// case; keyboard scrolling already covers the rest).
+	p := tea.NewProgram(New(cfg), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
@@ -193,11 +199,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
-	case tea.MouseMsg:
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -235,6 +236,9 @@ func (m *Model) refreshViewport() {
 
 	var parts []string
 	for _, b := range m.blocks {
+		if b.kind == blockReasoning && !m.showThinking {
+			continue
+		}
 		r := renderBlock(b)
 		if r != "" {
 			parts = append(parts, r)
@@ -274,6 +278,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
+
+	case tea.KeyCtrlT:
+		m.showThinking = !m.showThinking
+		m.refreshViewport()
+		return m, nil
 	}
 
 	if m.state == stateConfirming {
@@ -291,6 +300,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.input.SetValue("")
+		if strings.HasPrefix(text, "/") {
+			return m.handleCommand(text)
+		}
 		return m.submitUserMessage(text)
 	}
 
@@ -316,6 +328,41 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		tc := *m.pendingConfirm
 		m.pendingConfirm = nil
 		return m.recordToolResult(tc, "DENIED: user declined confirmation", true)
+	}
+	return m, nil
+}
+
+func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(text)
+	switch strings.ToLower(fields[0]) {
+	case "/thinking":
+		switch {
+		case len(fields) > 1 && strings.EqualFold(fields[1], "on"):
+			m.showThinking = true
+		case len(fields) > 1 && strings.EqualFold(fields[1], "off"):
+			m.showThinking = false
+		default:
+			m.showThinking = !m.showThinking
+		}
+		state := "hidden"
+		if m.showThinking {
+			state = "shown"
+		}
+		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("thinking is now %s (ctrl+t to toggle anytime)", state)})
+		m.refreshViewport()
+
+	case "/settings":
+		thinking := "off"
+		if m.showThinking {
+			thinking = "on"
+		}
+		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf(
+			"settings — thinking=%s (/thinking or ctrl+t)  model=%s  backend=%s  mode=%s",
+			thinking, m.cfg.Model, m.cfg.Backend, m.cfg.Mode,
+		)})
+
+	default:
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /thinking or /settings)"})
 	}
 	return m, nil
 }

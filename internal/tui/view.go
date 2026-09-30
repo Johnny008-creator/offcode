@@ -25,7 +25,7 @@ func (m Model) View() string {
 	body := m.viewport.View()
 	status := m.statusView()
 	input := m.inputView()
-	footer := footerStyle.Render(" ctrl+d exit · ctrl+c stop/exit · enter send · ↑↓/pgup/pgdn scroll")
+	footer := footerStyle.Render(" ctrl+d exit · ctrl+c stop/exit · enter send · ↑↓/pgup/pgdn scroll · ctrl+t toggle thinking")
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, status, input, footer)
 }
