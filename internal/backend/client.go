@@ -170,3 +170,50 @@ func (c *Client) listModelsOpenAI(ctx context.Context) ([]string, error) {
 	}
 	return names, nil
 }
+
+type LoadedModel struct {
+	Name          string
+	SizeBytes     uint64
+	SizeVRAMBytes uint64
+	ContextLength int
+	ExpiresAt     string
+}
+
+// RunningModels queries Ollama's native /api/ps for models currently
+// loaded in memory. Root is the Ollama server root (no /v1 suffix).
+func (c *Client) RunningModels(ctx context.Context, root string) ([]LoadedModel, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/ps", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		Models []struct {
+			Name          string `json:"name"`
+			Size          uint64 `json:"size"`
+			SizeVRAM      uint64 `json:"size_vram"`
+			ContextLength int    `json:"context_length"`
+			ExpiresAt     string `json:"expires_at"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+
+	out := make([]LoadedModel, len(parsed.Models))
+	for i, m := range parsed.Models {
+		out[i] = LoadedModel{
+			Name:          m.Name,
+			SizeBytes:     m.Size,
+			SizeVRAMBytes: m.SizeVRAM,
+			ContextLength: m.ContextLength,
+			ExpiresAt:     m.ExpiresAt,
+		}
+	}
+	return out, nil
+}
