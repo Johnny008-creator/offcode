@@ -95,7 +95,7 @@ const maxToolIterationsPerTurn = 25
 
 const maxPlanNudges = 2
 
-const appVersion = "0.1.0"
+const AppVersion = "0.1.0"
 
 type phase int
 

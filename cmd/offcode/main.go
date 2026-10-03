@@ -1,19 +1,36 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
+	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
 	"github.com/Johnny008-creator/offcode/internal/monitor"
+	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tui"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "monitor" {
-		runMonitor(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "monitor":
+			runMonitor(os.Args[2:])
+			return
+		case "models":
+			runModels(os.Args[2:])
+			return
+		case "doctor":
+			runDoctor(os.Args[2:])
+			return
+		case "version", "-v", "--version":
+			runVersion()
+			return
+		}
 	}
 	runChat(os.Args[1:])
 }
@@ -46,6 +63,117 @@ func runMonitor(args []string) {
 
 	if err := monitor.Run(*rootFlag); err != nil {
 		fmt.Fprintln(os.Stderr, "offcode monitor:", err)
+		os.Exit(1)
+	}
+}
+
+func runVersion() {
+	fmt.Printf("offcode v%s\n", tui.AppVersion)
+}
+
+func runModels(args []string) {
+	fs := flag.NewFlagSet("offcode models", flag.ExitOnError)
+	backendFlag := fs.String("backend", "ollama", "backend to use: ollama or lmstudio")
+	baseURLFlag := fs.String("base-url", "", "override the backend's OpenAI-compatible base URL")
+	fs.Parse(args)
+
+	baseURL, err := config.ResolveBaseURL(*backendFlag, *baseURLFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "offcode models:", err)
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := backend.NewClient(baseURL)
+	installed, err := client.ListModels(ctx, *backendFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "offcode models: could not reach backend:", err)
+		os.Exit(1)
+	}
+
+	installedSet := map[string]bool{}
+	for _, tag := range installed {
+		installedSet[tag] = true
+	}
+
+	fmt.Println("offcode tiers:")
+	for _, t := range tiers.Known {
+		mark := "not installed"
+		if installedSet[t.Tag] {
+			mark = "installed"
+		}
+		fmt.Printf("  %-16s %-14s %-40s [%s]\n", t.DisplayName, t.Tag, t.Tagline, mark)
+	}
+
+	var other []string
+	for _, tag := range installed {
+		if _, known := tiers.For(tag); !known {
+			other = append(other, tag)
+		}
+	}
+	if len(other) > 0 {
+		fmt.Println("\nOther installed models:")
+		for _, tag := range other {
+			fmt.Printf("  %s\n", tag)
+		}
+	}
+}
+
+func runDoctor(args []string) {
+	fs := flag.NewFlagSet("offcode doctor", flag.ExitOnError)
+	fs.Parse(args)
+
+	ok := true
+	check := func(name string, passed bool, detail string) {
+		mark := "✓"
+		if !passed {
+			mark = "✗"
+			ok = false
+		}
+		fmt.Printf("%s %-28s %s\n", mark, name, detail)
+	}
+
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+
+	resp, err := httpClient.Get("http://localhost:11434/api/version")
+	if err != nil {
+		check("Ollama reachable", false, "http://localhost:11434 — "+err.Error())
+	} else {
+		resp.Body.Close()
+		check("Ollama reachable", resp.StatusCode == http.StatusOK, "http://localhost:11434")
+	}
+
+	resp, err = httpClient.Get("http://127.0.0.1:8888/search?q=test&format=json")
+	if err != nil {
+		check("SearXNG reachable (web_search)", false, "http://127.0.0.1:8888 — "+err.Error())
+	} else {
+		resp.Body.Close()
+		check("SearXNG reachable (web_search)", resp.StatusCode == http.StatusOK, "http://127.0.0.1:8888")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := backend.NewClient("http://localhost:11434/v1")
+	installed, err := client.ListModels(ctx, "ollama")
+	if err != nil {
+		check("Model tiers installed", false, "could not list Ollama models: "+err.Error())
+	} else {
+		installedSet := map[string]bool{}
+		for _, tag := range installed {
+			installedSet[tag] = true
+		}
+		for _, t := range tiers.Known {
+			check(t.DisplayName+" ("+t.Tag+")", installedSet[t.Tag], "ollama pull "+t.Tag)
+		}
+	}
+
+	fmt.Println()
+	if ok {
+		fmt.Println("All checks passed.")
+	} else {
+		fmt.Println("Some checks failed — see above.")
 		os.Exit(1)
 	}
 }

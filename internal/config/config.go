@@ -18,6 +18,20 @@ var presetBaseURLs = map[string]string{
 	"lmstudio": "http://localhost:1234/v1",
 }
 
+// ResolveBaseURL applies the same backend -> default base URL logic Resolve
+// uses, without requiring a model — for subcommands like `offcode models`
+// or `offcode doctor` that need to reach a backend but aren't running a chat.
+func ResolveBaseURL(backendFlag, baseURLFlag string) (string, error) {
+	if baseURLFlag != "" {
+		return baseURLFlag, nil
+	}
+	preset, ok := presetBaseURLs[backendFlag]
+	if !ok {
+		return "", fmt.Errorf("unknown backend %q (expected ollama or lmstudio), or pass -base-url explicitly", backendFlag)
+	}
+	return preset, nil
+}
+
 func Resolve(backendFlag, baseURLFlag, model, modeFlag string) (Config, error) {
 	mode := permission.Mode(modeFlag)
 	switch mode {
@@ -26,13 +40,9 @@ func Resolve(backendFlag, baseURLFlag, model, modeFlag string) (Config, error) {
 		return Config{}, fmt.Errorf("invalid mode %q (expected plan, default, or auto)", modeFlag)
 	}
 
-	baseURL := baseURLFlag
-	if baseURL == "" {
-		preset, ok := presetBaseURLs[backendFlag]
-		if !ok {
-			return Config{}, fmt.Errorf("unknown backend %q (expected ollama or lmstudio), or pass -base-url explicitly", backendFlag)
-		}
-		baseURL = preset
+	baseURL, err := ResolveBaseURL(backendFlag, baseURLFlag)
+	if err != nil {
+		return Config{}, err
 	}
 
 	if model == "" {
