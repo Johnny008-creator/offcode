@@ -111,10 +111,19 @@ func (m Model) pickerView() string {
 		lines = append(lines, systemStyle.Render("(nothing to show)"))
 	default:
 		for i, item := range m.pickerItems {
+			label := item
+			switch m.picker {
+			case pickerModel:
+				label = modelLabel(item)
+			case pickerEffort:
+				if desc, ok := effortDescriptions[item]; ok {
+					label = item + " — " + desc
+				}
+			}
 			if i == m.pickerCursor {
-				lines = append(lines, assistantLabelStyle.Render("> "+item))
+				lines = append(lines, assistantLabelStyle.Render("> "+label))
 			} else {
-				lines = append(lines, subHeaderStyle.Render("  "+item))
+				lines = append(lines, subHeaderStyle.Render("  "+label))
 			}
 		}
 	}
@@ -136,7 +145,7 @@ func (m Model) splashView() string {
 
 func (m Model) headerView() string {
 	title := headerStyle.Render("offcode")
-	sub := subHeaderStyle.Render(fmt.Sprintf(" model=%s  backend=%s  mode=%s", m.cfg.Model, m.cfg.Backend, m.cfg.Mode))
+	sub := subHeaderStyle.Render(fmt.Sprintf(" model=%s  backend=%s  mode=%s", modelHeaderLabel(m.cfg.Model), m.cfg.Backend, m.cfg.Mode))
 	line1 := title + sub
 	line2 := strings.Repeat("─", max(0, m.width))
 	return line1 + "\n" + line2
@@ -184,7 +193,7 @@ func (m Model) inputView() string {
 	if m.state == stateGenerating || m.state == stateConfirming {
 		return systemStyle.Render(" waiting…")
 	}
-	return inputPromptStyle.Render("") + m.input.View()
+	return m.input.View()
 }
 
 func formatTokens(n int) string {

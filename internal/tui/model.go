@@ -157,6 +157,8 @@ type Model struct {
 	planNudges             int
 	actionsSincePlanUpdate int
 
+	usageByModel map[string]*ModelUsage
+
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
 	toolIterations   int
@@ -172,6 +174,7 @@ func New(cfg config.Config) Model {
 	ti := textinput.New()
 	ti.Placeholder = "type your request..."
 	ti.Prompt = "> "
+	ti.PromptStyle = inputPromptStyle
 	ti.Focus()
 
 	sp := spinner.New()
@@ -188,6 +191,7 @@ func New(cfg config.Config) Model {
 		sessionStart: time.Now(),
 		showThinking: true,
 		readPaths:    map[string]bool{},
+		usageByModel: map[string]*ModelUsage{},
 	}
 }
 
@@ -417,6 +421,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.input.SetValue("")
+		m.restyleInput()
 		if strings.HasPrefix(text, "/") {
 			return m.handleCommand(text)
 		}
@@ -425,7 +430,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.restyleInput()
 	return m, cmd
+}
+
+func (m *Model) restyleInput() {
+	if strings.HasPrefix(m.input.Value(), "/") {
+		m.input.PromptStyle = commandPromptStyle
+		m.input.TextStyle = commandTextStyle
+	} else {
+		m.input.PromptStyle = inputPromptStyle
+		m.input.TextStyle = lipgloss.NewStyle()
+	}
 }
 
 func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -475,10 +491,22 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 		return m.openModelPicker(pickerNone)
 
 	case "/effort":
+		if len(fields) > 1 {
+			if lvl, ok := parseEffortArg(fields[1]); ok {
+				m.think = lvl
+				m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("reasoning effort set to %s", effortLabel(lvl))})
+				return m, nil
+			}
+			m.pushBlock(block{kind: blockSystem, text: "unknown effort level: " + fields[1] + " (try default, off, low, medium, or high)"})
+			return m, nil
+		}
 		m.openEffortPicker(pickerNone)
 
+	case "/usage":
+		m.pushBlock(block{kind: blockSystem, text: m.renderUsageReport()})
+
 	default:
-		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, or /thinking)"})
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, or /thinking)"})
 	}
 	return m, nil
 }
@@ -594,6 +622,7 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		m.tokensPerSec = float64(ev.Usage.CompletionTokens) / elapsed
 	}
 	m.lastUsage = ev.Usage
+	m.recordUsage(m.cfg.Model, ev.Usage, time.Since(m.turnStart))
 
 	msg := ev.Message
 

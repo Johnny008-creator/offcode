@@ -20,7 +20,7 @@ func bannerInfoLines(cfg config.Config) [3]string {
 	}
 	return [3]string{
 		fmt.Sprintf("offcode v%s", appVersion),
-		fmt.Sprintf("%s · %s · mode=%s", cfg.Model, cfg.Backend, cfg.Mode),
+		fmt.Sprintf("%s · %s · mode=%s", modelHeaderLabel(cfg.Model), cfg.Backend, cfg.Mode),
 		cwd,
 	}
 }

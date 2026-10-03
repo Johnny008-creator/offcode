@@ -30,10 +30,27 @@ var effortLevels = []backend.ThinkLevel{
 	backend.ThinkHigh,
 }
 
+func parseEffortArg(s string) (backend.ThinkLevel, bool) {
+	for _, lvl := range effortLevels {
+		if string(lvl) == s || (lvl == backend.ThinkDefault && s == "default") {
+			return lvl, true
+		}
+	}
+	return backend.ThinkDefault, false
+}
+
 var permissionModes = []permission.Mode{
 	permission.ModePlan,
 	permission.ModeDefault,
 	permission.ModeAuto,
+}
+
+var effortDescriptions = map[string]string{
+	"default": "model's own default reasoning behavior",
+	"off":     "no reasoning — fastest, best for simple tasks",
+	"low":     "light reasoning",
+	"medium":  "balanced reasoning depth",
+	"high":    "deepest reasoning — slowest, best for hard problems",
 }
 
 func effortLabel(t backend.ThinkLevel) string {
@@ -55,7 +72,7 @@ func (m Model) settingsItems() []string {
 		"Thinking display: " + onOff(m.showThinking),
 		"Reasoning effort: " + effortLabel(m.think),
 		"Permission mode: " + string(m.cfg.Mode),
-		"Model: " + m.cfg.Model,
+		"Model: " + modelLabel(m.cfg.Model),
 	}
 }
 

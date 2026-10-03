@@ -11,6 +11,7 @@ var (
 	colorError    = lipgloss.Color("9")  // bright red
 	colorDim      = lipgloss.Color("8")
 	colorBorder   = lipgloss.Color("8")
+	colorCommand  = lipgloss.Color("13") // bright magenta
 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -61,6 +62,13 @@ var (
 	inputPromptStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(colorAccent)
+
+	commandPromptStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorCommand)
+
+	commandTextStyle = lipgloss.NewStyle().
+				Foreground(colorCommand)
 
 	footerStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
