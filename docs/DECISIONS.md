@@ -239,3 +239,111 @@ itself in `processNextToolCall` rather than routing through
   an HTML calculator: dark card UI, CSS grid, hover states, proper color
   palette — a real, visible improvement over the unstyled output that
   prompted this whole round of changes.
+
+## Four-tier model campaign: per-tier prompts, loop breaker, honest tok/s (2026-10-03)
+
+Added a fourth and final tier below qwen3:8b and above it: `qwen3:1.7b`
+(Spark, ultra-lite), `qwen3.5:4b` (Ember, lite), `qwen3:8b` (Forge,
+medium — the existing validated default), `gemma4:12b` (Anvil, high — a
+new model family for this project). Branded identity (Spark/Ember/Forge/
+Anvil) lives in `internal/tiers`, shared by the chat TUI, `offcode
+models`, `offcode doctor`, and `offcode monitor`.
+
+Before writing per-tier prompts, ran a full autonomous test campaign (a
+forked agent, ~75 tool calls, ~77 minutes) against the real offcode
+binary in an isolated sandbox — the same 7-task battery against all four
+models, nothing touched under the actual project. Full report kept in
+session history; headline finding, and the reason this round of changes
+exists:
+
+**All four models failed the same class of task — "build a styled
+single-file HTML page" — each in a different way**, which is exactly the
+complaint that started this whole effort:
+- **Spark** (1.7B): fabricated a complete fake success transcript on a
+  moderate multi-file task — zero files created, bash never invoked —
+  and did not self-correct when directly challenged by the plan-
+  completion nudge.
+- **Ember** (4B): correctly used `ask_user` (a real step up from Spark),
+  but mid-session convinced itself it "doesn't have web access" despite
+  `web_search` being in every request's tool list, and showed outright
+  response truncation (stops mid-sentence, no tool call) on harder tasks.
+- **Forge** (8B, our known baseline): three consecutive attempts —
+  including two direct manual nudges — to build the HTML page all ended
+  with detailed reasoning about the CSS approach followed by **no write
+  call at all**. The turn just ended. This is the single most important
+  finding of the campaign: our best-validated model silently fails on an
+  extremely common request.
+- **Anvil** (12B, first test): best metacognitive behavior of the four —
+  when the plan-completion nudge fired, it explicitly reasoned "the
+  system's warning was correct" and tried to fix itself, something no
+  other tier did. But on the same large-write task, its `write` call's
+  `path` argument came back silently empty/missing (confirmed via direct
+  API testing: small payloads include `path` correctly; only large
+  `content` values trigger the drop — looks like gemma4's special
+  function-call-token mechanism loses an earlier argument while
+  generating a long one), and it then **re-emitted the identical
+  malformed call for 7+ minutes** without adapting, until manually
+  interrupted.
+
+### Mechanism fixes (not just prompt wording)
+
+- **Repeated-identical-tool-call breaker** (`internal/tui/model.go`):
+  tracks the last failed `(tool, arguments)` pair and a consecutive-
+  failure count. A third identical attempt is denied outright before
+  execution — "this exact call has already failed N times, change
+  something or explain the problem instead" — rather than trusting the
+  model to notice it's looping. Directly targets Anvil's 7-minute loop;
+  applies to any tool, not just write.
+- **Explicit empty-`path` error** (`internal/tools/tools.go`): write/edit
+  now check for a missing `path` *before* attempting the OS call and
+  return a pointed message naming exactly which field is missing and
+  what the correct shape looks like, instead of the opaque OS-level
+  `open : no such file or directory` that gave the model nothing to
+  correct from.
+- **Honest tok/s** (`internal/backend/native.go`, `types.go`): Ollama's
+  native API reports `eval_duration` (pure generation time) separately
+  from prompt-processing time; `Usage.EvalDurationNs` now carries it
+  through, and both the live status bar and the persistent usage log
+  prefer it over wall-clock, which previously understated speed
+  (especially on short replies) by including the ~2K-token tool-schema
+  reprocessing time on every request.
+- Removing `ask_user` from Spark's tool list entirely (not just
+  discouraging it in the prompt) — it never used the tool live, so
+  cutting it from the schema reduces overhead for zero behavioral loss.
+
+### Per-tier system prompts (`internal/tui/prompts.go`)
+
+One shared base template (identity → environment → core policies → tool
+philosophy → risk section), varying only in density/explicitness by
+tier rather than structure — this matches what the leaked Claude Code
+system prompts do between their smaller and flagship tiers (haiku vs
+opus structural research, done before writing these): smaller tiers get
+more explicit, imperative, step-by-step phrasing; larger tiers get
+terser, more principle-based language. Per the same research, the model
+is told its offcode identity as a fact for when it's asked, but never
+instructed to volunteer its tier name unprompted — confirmed working
+live: asked "what model or AI are you," qwen3:8b answered "I am Offcode
+Forge... I don't rely on any external models," correctly declining to
+name the underlying vendor.
+
+Two universal additions directly from the campaign's cross-model
+finding: "never narrate an action instead of taking it — if you catch
+yourself writing 'let me write the code' as plain text, stop and emit
+the actual call," and an explicit instruction to double-check a write/
+edit call actually includes `"path"` before sending it, especially for
+substantial content. Re-tested the exact scenario that failed three
+times against qwen3:8b before this change (styled single-file HTML
+note-taking app) — it now writes the file on the first attempt, with
+genuinely good CSS, and still answers its own identity question
+correctly.
+
+Per-tier addenda encode the specific failure mode found for each: Spark
+gets told to use tools literally rather than guessing (plus the ask_user
+removal above); Ember gets told web_search is real "even if you don't
+see yourself using it for a while" and to finish responses rather than
+trailing off; Forge gets told explicitly to go from describing content
+straight to the write call, nothing in between; Anvil gets its self-
+correction instinct reinforced, told not to over-investigate trivial
+ask_user-worthy questions, and warned specifically about the large-
+payload path-dropping bug with instructions to rebuild (not resend) a
+failed large write.

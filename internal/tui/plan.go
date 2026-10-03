@@ -108,6 +108,13 @@ func (m Model) handlePlanUpdate(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 
 	result := fmt.Sprintf("step %d marked %s.", a.Index, a.Status)
 
+	// Known false-positive: one tool call that legitimately satisfies
+	// multiple plan steps (e.g. a single write covering two steps) will
+	// trigger this warning on the second plan_update even though real work
+	// did happen. Left as-is deliberately — observed live during model
+	// testing, but the warning is harmless in that case (model just
+	// explains it already did the work) and net-positive for the actual
+	// failure mode it catches (marking steps done with no work at all).
 	if status == stepDone && m.actionsSincePlanUpdate == 0 {
 		result += " Warning: no read/write/edit/bash/grep/glob/web_search/fetch_url call happened since the plan was" +
 			" last updated — if you didn't actually do the work for this step yet, mark it back to pending or" +

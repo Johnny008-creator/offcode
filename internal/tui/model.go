@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -22,74 +21,6 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 )
-
-const systemPromptTemplate = `You are offcode, a local coding assistant running against an on-device model.
-You have tools to read, write, and edit files, run shell commands, search the
-codebase, search the web, and fetch a URL's content. Use tools when you need
-real information instead of guessing. Keep responses concise.
-
-For an EXISTING file: prefer the edit tool over write. If edit fails (e.g.
-old_string not found or not unique), read the file first to see its real
-current content before trying again — never call write on a file you
-haven't just read, since write replaces the entire file and a guessed
-rewrite will silently discard content you never saw. Only use write
-directly for brand-new files or when you've just read the file you're
-updating.
-
-Planning: for any task with more than one or two obvious steps, call
-plan_set first with a short ordered list of concrete steps before doing
-anything else — the first step is marked in_progress for you automatically.
-As soon as you finish a step, call plan_update(index, "done") right away,
-even if the next action feels like a natural continuation — the next
-pending step gets marked in_progress for you automatically, so that's the
-only call you need per finished step. Add or adjust remaining steps with
-plan_set again if the task's scope changes mid-way. When you finish, give
-a substantive closing summary of what you actually did or built, not just
-a one-line acknowledgment — say what changed, where, and how the user can
-see or use it. Skip planning entirely for genuinely trivial one-step
-requests.
-
-Asking the user: if there's a real fork in approach and you have a
-recommendation but no clearly-forced answer (e.g. which of several valid
-designs, which library, which UI layout), call ask_user with the options
-and your recommended_index instead of silently guessing. Don't ask about
-things you can reasonably decide yourself — that's just friction.
-
-Building UI/web output (HTML/CSS/frontend code): always give it real,
-modern styling — sensible typography, spacing, and color, not bare
-unstyled markup. A finished page or app should look deliberately designed,
-not like a first draft. If you're not confident it looks good, iterate on
-the CSS before calling the task done.
-
-Web search and fetch_url: your training data can be stale or wrong about
-anything time-sensitive (current versions, prices, recent events, current
-best practices). When that matters, use web_search, and if the result
-snippets don't directly answer the question, use fetch_url on the most
-relevant result instead of falling back to a training-data guess.
-
-Environment you are actually running in — use these, don't guess or assume
-a different OS or layout (e.g. never invent macOS-style paths like
-/Users/<name> unless the operating system below is darwin):
-- Operating system: %s
-- Shell for the bash tool: %s
-- Home directory: %s
-- Current working directory: %s`
-
-func buildSystemPrompt() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "unknown"
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "unknown"
-	}
-	shell := "sh -c"
-	if runtime.GOOS == "windows" {
-		shell = "cmd /C"
-	}
-	return fmt.Sprintf(systemPromptTemplate, runtime.GOOS, shell, home, cwd)
-}
 
 const maxToolIterationsPerTurn = 25
 
@@ -161,6 +92,8 @@ type Model struct {
 	pendingConfirm   *backend.ToolCall
 	toolIterations   int
 	readPaths        map[string]bool
+	lastFailedCall   string
+	repeatFailCount  int
 
 	streamEvents <-chan backend.StreamEvent
 	cancelGen    context.CancelFunc
@@ -181,7 +114,7 @@ func New(cfg config.Config) Model {
 	return Model{
 		cfg:          cfg,
 		client:       backend.NewClient(cfg.BaseURL),
-		messages:     []backend.Message{{Role: "system", Content: buildSystemPrompt()}},
+		messages:     []backend.Message{{Role: "system", Content: buildSystemPrompt(cfg.Model)}},
 		phase:        phaseSplash,
 		state:        stateIdle,
 		input:        ti,
@@ -540,7 +473,7 @@ func (m Model) startGeneration() (tea.Model, tea.Cmd) {
 	req := backend.ChatRequest{
 		Model:    m.cfg.Model,
 		Messages: m.messages,
-		Tools:    append(tools.Definitions(), metaToolDefinitions()...),
+		Tools:    toolsForModel(m.cfg.Model),
 	}
 
 	var ch <-chan backend.StreamEvent
@@ -614,9 +547,18 @@ func (m *Model) setStreamingReasoningBlock() {
 }
 
 func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
-	elapsed := time.Since(m.turnStart).Seconds()
-	if elapsed > 0 && ev.Usage.CompletionTokens > 0 {
-		m.tokensPerSec = float64(ev.Usage.CompletionTokens) / elapsed
+	if ev.Usage.CompletionTokens > 0 {
+		switch {
+		case ev.Usage.EvalDurationNs > 0:
+			// Pure generation speed (Ollama's eval_duration), excludes
+			// prompt processing — more honest than wall-clock, which
+			// includes the time spent re-processing our ~2K-token tool
+			// schema on every request and understates true tok/s,
+			// especially on short replies (found via live model testing).
+			m.tokensPerSec = float64(ev.Usage.CompletionTokens) / (float64(ev.Usage.EvalDurationNs) / 1e9)
+		case time.Since(m.turnStart).Seconds() > 0:
+			m.tokensPerSec = float64(ev.Usage.CompletionTokens) / time.Since(m.turnStart).Seconds()
+		}
 	}
 	m.lastUsage = ev.Usage
 	recordUsage(m.cfg.Model, ev.Usage, time.Since(m.turnStart))
@@ -691,6 +633,18 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handleAskUser(tc)
 	}
 
+	// Loop breaker: a model that gets an error back sometimes just retries
+	// the exact same call verbatim instead of adapting — observed live
+	// looping for 7+ minutes on an identical malformed write call. After
+	// two identical failures in a row, refuse the third outright rather
+	// than executing (and likely failing) it again.
+	callKey := tc.Function.Name + "\x00" + tc.Function.Arguments
+	if callKey == m.lastFailedCall && m.repeatFailCount >= 2 {
+		return m.recordToolResult(tc, fmt.Sprintf(
+			"DENIED: this exact %s call with identical arguments has already failed %d times in a row — refusing to run it again verbatim, since it will just fail the same way. Change the arguments, try a different tool, or explain the problem to the user instead of repeating this call.",
+			tc.Function.Name, m.repeatFailCount), true)
+	}
+
 	decision := permission.Check(m.cfg.Mode, tc.Function.Name, tc.Function.Arguments)
 
 	if tc.Function.Name == "write" && !decision.Denied {
@@ -750,6 +704,18 @@ func (m Model) handleToolExecuted(ev toolExecutedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) recordToolResult(tc backend.ToolCall, content string, isError bool) (tea.Model, tea.Cmd) {
+	callKey := tc.Function.Name + "\x00" + tc.Function.Arguments
+	switch {
+	case !isError:
+		m.lastFailedCall = ""
+		m.repeatFailCount = 0
+	case callKey == m.lastFailedCall:
+		m.repeatFailCount++
+	default:
+		m.lastFailedCall = callKey
+		m.repeatFailCount = 1
+	}
+
 	m.messages = append(m.messages, backend.Message{
 		Role:       "tool",
 		ToolCallID: tc.ID,

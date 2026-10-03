@@ -70,6 +70,7 @@ type nativeStreamChunk struct {
 	Done            bool   `json:"done"`
 	PromptEvalCount int    `json:"prompt_eval_count"`
 	EvalCount       int    `json:"eval_count"`
+	EvalDuration    int64  `json:"eval_duration"`
 	Error           string `json:"error"`
 }
 
@@ -188,6 +189,7 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 					PromptTokens:     chunk.PromptEvalCount,
 					CompletionTokens: chunk.EvalCount,
 					TotalTokens:      chunk.PromptEvalCount + chunk.EvalCount,
+					EvalDurationNs:   chunk.EvalDuration,
 				}
 			}
 		}

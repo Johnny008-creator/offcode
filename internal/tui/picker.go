@@ -216,6 +216,9 @@ func (m Model) applyPickerSelection() (tea.Model, tea.Cmd) {
 			newModel := m.pickerItems[m.pickerCursor]
 			m.cfg.Model = newModel
 			m.lastUsage = backend.Usage{}
+			if len(m.messages) > 0 && m.messages[0].Role == "system" {
+				m.messages[0].Content = buildSystemPrompt(newModel)
+			}
 			m2 := m.closePicker("model set to " + newModel)
 			return m2, refreshContextCmd(m.client, newModel)
 		}

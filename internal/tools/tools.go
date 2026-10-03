@@ -75,6 +75,9 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
 			return "", err
 		}
+		if a.Path == "" {
+			return "", fmt.Errorf(`the "path" argument was missing or empty — arguments must include both "path" and "content" as top-level JSON fields, e.g. {"path":"notes.html","content":"..."}`)
+		}
 		return Write(a.Path, a.Content)
 	case "edit":
 		var a struct {
@@ -84,6 +87,9 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		}
 		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
 			return "", err
+		}
+		if a.Path == "" {
+			return "", fmt.Errorf(`the "path" argument was missing or empty — arguments must include "path", "old_string", and "new_string" as top-level JSON fields`)
 		}
 		return Edit(a.Path, a.OldString, a.NewString)
 	case "bash":

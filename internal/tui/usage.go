@@ -7,7 +7,13 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/usagelog"
 )
 
-func recordUsage(tag string, usage backend.Usage, dur time.Duration) {
+func recordUsage(tag string, usage backend.Usage, wallClock time.Duration) {
+	genDur := wallClock
+	if usage.EvalDurationNs > 0 {
+		// Prefer pure generation time over wall-clock (which includes
+		// prompt processing) for an honest tok/s in usage reports.
+		genDur = time.Duration(usage.EvalDurationNs)
+	}
 	// Best-effort: a failure to persist usage should never interrupt the
 	// chat loop, so the error is intentionally dropped here.
 	_ = usagelog.Append(usagelog.Record{
@@ -15,7 +21,7 @@ func recordUsage(tag string, usage backend.Usage, dur time.Duration) {
 		Model:            tag,
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
-		DurationMs:       dur.Milliseconds(),
+		DurationMs:       genDur.Milliseconds(),
 	})
 }
 

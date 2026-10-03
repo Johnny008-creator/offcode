@@ -49,6 +49,12 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+
+	// EvalDurationNs is pure generation time in nanoseconds, as reported by
+	// Ollama's native API (eval_duration) — excludes prompt processing.
+	// Zero when the backend doesn't report it (e.g. the OpenAI-compatible
+	// /v1 path), in which case callers fall back to wall-clock timing.
+	EvalDurationNs int64
 }
 
 type chatResponse struct {
