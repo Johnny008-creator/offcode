@@ -19,7 +19,7 @@ of a blank page next session. Rough effort tags: **S** (a session or less),
   bash tool already branches on `runtime.GOOS` but is untested; path
   handling, the monitor, and SearXNG/Docker setup all need a real pass.
 
-## Context & memory
+## Context, memory & learning
 
 - **[M] Context compaction.** Called out as deferred since the very first
   DECISIONS.md entry and still not built. Matters more for local models
@@ -35,6 +35,42 @@ of a blank page next session. Rough effort tags: **S** (a session or less),
 - **[M] Config file.** `~/.offcode/config.toml` (or similar) for defaults
   (model, mode, backend) instead of CLI flags every time — flagged as
   deferred in the original v0.1 scope.
+- **[M] Persistent memory across sessions.** Right now every offcode
+  session starts from zero — no memory of the user's preferences, past
+  corrections, or project-specific conventions, even for the exact same
+  project the day before. Worth building something modeled directly on
+  the memory system this very assistant uses day to day, since it's a
+  proven design: a handful of typed entries —
+  - **project**: facts about a specific codebase that aren't derivable by
+    reading the code (why a weird workaround exists, what's mid-refactor)
+  - **feedback**: corrections or confirmed approaches ("don't use X here,
+    user said Y broke last time" / "user confirmed Z approach works") —
+    the single highest-value type, since it directly prevents repeating a
+    mistake the user already corrected once
+  - **user**: standing preferences (verbosity, tone, how they like changes
+    staged/committed)
+
+  Mechanically: a small `~/.offcode/memory/` directory (global) plus
+  maybe a per-project file, loaded into the system prompt (or a
+  `recall_memory` tool a model calls on demand — same always-on-vs-on-
+  demand tradeoff as the CSS/design skill idea above) at session start.
+  The harder design question isn't storage, it's **when an entry gets
+  written** — this assistant relies on a person (Claude) noticing "the
+  user just corrected me" or "the user just confirmed something
+  non-obvious" and deciding to save it; a local model, especially the
+  smaller tiers, may need a more mechanical trigger (an explicit
+  `/remember <note>` command the user invokes themselves is the safe
+  fallback if automatic noticing proves unreliable for weaker tiers).
+- **[L] Actual learning, not just memory-as-context.** A level beyond the
+  above: periodically fine-tuning a small LoRA adapter per tier from
+  accumulated corrections/successful sessions, so the model's own weights
+  shift over time instead of every past lesson being re-injected as text
+  context forever. Genuinely heavier — needs a training pipeline (data
+  collection from the feedback-memory above, a LoRA training script,
+  swapping the adapter into Ollama/the serving layer) that doesn't exist
+  in any form yet. Worth treating as a distinct, much-later idea from
+  plain memory rather than bundling them — memory-as-context is buildable
+  soon, LoRA adaptation is a project of its own.
 
 ## Bigger capabilities (user's suggestions)
 
