@@ -157,8 +157,6 @@ type Model struct {
 	planNudges             int
 	actionsSincePlanUpdate int
 
-	usageByModel map[string]*ModelUsage
-
 	pendingToolCalls []backend.ToolCall
 	pendingConfirm   *backend.ToolCall
 	toolIterations   int
@@ -191,7 +189,6 @@ func New(cfg config.Config) Model {
 		sessionStart: time.Now(),
 		showThinking: true,
 		readPaths:    map[string]bool{},
-		usageByModel: map[string]*ModelUsage{},
 	}
 }
 
@@ -622,7 +619,7 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		m.tokensPerSec = float64(ev.Usage.CompletionTokens) / elapsed
 	}
 	m.lastUsage = ev.Usage
-	m.recordUsage(m.cfg.Model, ev.Usage, time.Since(m.turnStart))
+	recordUsage(m.cfg.Model, ev.Usage, time.Since(m.turnStart))
 
 	msg := ev.Message
 

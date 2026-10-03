@@ -9,6 +9,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/sysmon"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
+	"github.com/Johnny008-creator/offcode/internal/usagelog"
 )
 
 var (
@@ -19,38 +20,65 @@ var (
 	colorDim    = lipgloss.Color("8")
 
 	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
-	labelStyle  = lipgloss.NewStyle().Bold(true)
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	dimStyle    = lipgloss.NewStyle().Foreground(colorDim)
 	boxStyle    = lipgloss.NewStyle().Padding(0, 1).BorderStyle(lipgloss.RoundedBorder()).BorderForeground(colorDim)
 )
 
-var sparkChars = []rune("▁▂▃▄▅▆▇█")
+const chartRows = 6
 
-func sparkline(history []float64, width int) string {
-	if len(history) == 0 {
-		return strings.Repeat(" ", width)
+// multiRowChart renders a bottom-up filled bar chart of history (0-100
+// scale) as `rows` lines of `width` characters, most recent sample on the
+// right. Each row is colored by how "hot" that band is, so the chart
+// gradients from green (low) through yellow to red (near 100%) similar to
+// a classic system monitor.
+func multiRowChart(history []float64, width, rows int) []string {
+	if width < 1 {
+		width = 1
 	}
+	cols := make([]int, width)
 	start := 0
 	if len(history) > width {
 		start = len(history) - width
 	}
 	vis := history[start:]
-
-	var b strings.Builder
-	for _, v := range vis {
+	pad := width - len(vis)
+	if pad < 0 {
+		pad = 0
+	}
+	for i, v := range vis {
+		if i+pad >= width {
+			break
+		}
 		if v < 0 {
 			v = 0
 		}
 		if v > 100 {
 			v = 100
 		}
-		idx := int(v / 100 * float64(len(sparkChars)-1))
-		b.WriteRune(sparkChars[idx])
+		filled := int(v / 100 * float64(rows))
+		if filled == 0 && v > 0 {
+			filled = 1
+		}
+		cols[pad+i] = filled
 	}
-	for b.Len() < width {
-		b.WriteRune(' ')
+
+	lines := make([]string, rows)
+	for r := 0; r < rows; r++ {
+		threshold := rows - r
+		bandPercent := float64(threshold) / float64(rows) * 100
+		style := lipgloss.NewStyle().Foreground(percentColor(bandPercent))
+		var b strings.Builder
+		for c := 0; c < width; c++ {
+			if cols[c] >= threshold {
+				b.WriteRune('█')
+			} else {
+				b.WriteRune(' ')
+			}
+		}
+		lines[r] = style.Render(b.String())
 	}
-	return b.String()
+	return lines
 }
 
 func percentColor(p float64) lipgloss.Color {
@@ -79,6 +107,39 @@ func bar(percent float64, width int) string {
 	return style.Render(strings.Repeat("█", filled)) + dimStyle.Render(strings.Repeat("░", width-filled))
 }
 
+// padLine right-pads s with spaces to width visible columns, using
+// lipgloss's ANSI-aware width measurement (not byte length).
+func padLine(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+// box renders a titled, bordered panel exactly `outerWidth` columns wide.
+// Deliberately does NOT use boxStyle.Width() on multi-line ANSI-styled
+// content — lipgloss's width-constrained Render() reflows pre-joined
+// multi-line styled text instead of just drawing a border around it
+// (hit this exact bug class before in the chat TUI's plan panel; see
+// docs/DECISIONS.md). Instead, every line is padded to the same visible
+// width by hand first, then the border is drawn around already-uniform
+// content with no Width() call to trigger a reflow.
+func box(title, body string, outerWidth int) string {
+	const overhead = 4 // 2 padding + 2 border
+	w := outerWidth - overhead
+	if w < 1 {
+		w = 1
+	}
+
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = padLine(line, w)
+	}
+	content := padLine(titleStyle.Render(title), w) + "\n" + strings.Join(lines, "\n")
+	return boxStyle.Render(content)
+}
+
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -87,30 +148,30 @@ func (m Model) View() string {
 		return "starting…"
 	}
 
-	var out strings.Builder
-	out.WriteString(headerStyle.Render("offcode monitor"))
-	out.WriteString(dimStyle.Render("  " + m.ollamaRoot))
-	out.WriteString("\n")
-	out.WriteString(strings.Repeat("─", m.width))
-	out.WriteString("\n\n")
-
-	barWidth := m.width - 45
+	innerWidth := m.width - 4 // account for box border + padding
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+	barWidth := innerWidth - 40
 	if barWidth < 10 {
 		barWidth = 10
 	}
-	sparkWidth := m.width - 14
-	if sparkWidth < 10 {
-		sparkWidth = 10
-	}
 
-	out.WriteString(m.renderCPU(barWidth, sparkWidth))
+	var out strings.Builder
+	out.WriteString(headerStyle.Render("offcode monitor"))
+	out.WriteString(dimStyle.Render("  " + m.ollamaRoot))
 	out.WriteString("\n\n")
-	out.WriteString(m.renderMemory(barWidth))
-	out.WriteString("\n\n")
-	out.WriteString(m.renderGPU(barWidth, sparkWidth))
-	out.WriteString("\n\n")
-	out.WriteString(m.renderModels())
-	out.WriteString("\n\n")
+
+	out.WriteString(box("CPU", m.renderCPU(barWidth, innerWidth), m.width))
+	out.WriteString("\n")
+	out.WriteString(box("Memory", m.renderMemory(barWidth), m.width))
+	out.WriteString("\n")
+	out.WriteString(box(m.gpuTitle(), m.renderGPU(barWidth, innerWidth), m.width))
+	out.WriteString("\n")
+	out.WriteString(box("Loaded models (Ollama)", m.renderModels(), m.width))
+	out.WriteString("\n")
+	out.WriteString(box("Usage (all-time)", m.renderUsage(), m.width))
+	out.WriteString("\n")
 	out.WriteString(dimStyle.Render(fmt.Sprintf("updated %s ago  ·  q / esc / ctrl+c to quit", timeSince(m.lastUpdate))))
 
 	return out.String()
@@ -123,78 +184,90 @@ func timeSince(t time.Time) string {
 	return time.Since(t).Round(time.Second).String()
 }
 
-func (m Model) renderCPU(barWidth, sparkWidth int) string {
+func (m Model) renderCPU(barWidth, chartWidth int) string {
 	var b strings.Builder
-	b.WriteString(labelStyle.Render("CPU"))
-	b.WriteString(fmt.Sprintf("  %5.1f%%  %s\n", m.cpuPercent, bar(m.cpuPercent, barWidth)))
-	b.WriteString(dimStyle.Render("history  ") + sparkline(m.cpuHistory, sparkWidth))
-	return b.String()
+	fmt.Fprintf(&b, "%5.1f%%  %s\n", m.cpuPercent, bar(m.cpuPercent, barWidth))
+	for _, line := range multiRowChart(m.cpuHistory, chartWidth, chartRows) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m Model) renderMemory(barWidth int) string {
-	var b strings.Builder
-	b.WriteString(labelStyle.Render("Memory"))
 	if !m.memOK {
-		b.WriteString(dimStyle.Render("  n/a"))
-		return b.String()
+		return dimStyle.Render("n/a")
 	}
 	pct := float64(m.mem.UsedBytes) / float64(m.mem.TotalBytes) * 100
-	b.WriteString(fmt.Sprintf("  %5.1f%%  %s  %s / %s",
-		pct, bar(pct, barWidth), sysmon.FormatBytes(m.mem.UsedBytes), sysmon.FormatBytes(m.mem.TotalBytes)))
-	return b.String()
+	return fmt.Sprintf("%5.1f%%  %s  %s / %s",
+		pct, bar(pct, barWidth), sysmon.FormatBytes(m.mem.UsedBytes), sysmon.FormatBytes(m.mem.TotalBytes))
 }
 
-func (m Model) renderGPU(barWidth, sparkWidth int) string {
-	var b strings.Builder
-	label := "GPU"
+func (m Model) gpuTitle() string {
 	if m.gpuOK && m.gpu.Name != "" {
-		label = "GPU — " + m.gpu.Name
+		return "GPU — " + m.gpu.Name
 	}
-	b.WriteString(labelStyle.Render(label))
+	return "GPU"
+}
+
+func (m Model) renderGPU(barWidth, chartWidth int) string {
 	if !m.gpuOK {
-		b.WriteString(dimStyle.Render("  n/a (no supported GPU sysfs interface found)"))
-		return b.String()
+		return dimStyle.Render("n/a (no supported GPU sysfs interface found)")
 	}
-	b.WriteString(fmt.Sprintf("  %5.1f%%  %s\n", m.gpu.BusyPercent, bar(m.gpu.BusyPercent, barWidth)))
-	b.WriteString(dimStyle.Render("history  ") + sparkline(m.gpuHistory, sparkWidth) + "\n")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "busy  %5.1f%%  %s\n", m.gpu.BusyPercent, bar(m.gpu.BusyPercent, barWidth))
+	for _, line := range multiRowChart(m.gpuHistory, chartWidth, chartRows) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
 
 	vramPct := 0.0
 	if m.gpu.VRAMTotal > 0 {
 		vramPct = float64(m.gpu.VRAMUsed) / float64(m.gpu.VRAMTotal) * 100
 	}
-	b.WriteString(fmt.Sprintf("VRAM     %5.1f%%  %s  %s / %s\n",
-		vramPct, bar(vramPct, barWidth), sysmon.FormatBytes(m.gpu.VRAMUsed), sysmon.FormatBytes(m.gpu.VRAMTotal)))
+	fmt.Fprintf(&b, "vram  %5.1f%%  %s  %s / %s\n",
+		vramPct, bar(vramPct, barWidth), sysmon.FormatBytes(m.gpu.VRAMUsed), sysmon.FormatBytes(m.gpu.VRAMTotal))
 	b.WriteString(dimStyle.Render(fmt.Sprintf("%.0f°C  ·  %.1f W", m.gpu.TempC, m.gpu.PowerW)))
 	return b.String()
 }
 
 func (m Model) renderModels() string {
-	var b strings.Builder
-	b.WriteString(labelStyle.Render("Loaded models (Ollama)"))
-	b.WriteString("\n")
 	if m.runningErr != "" {
-		b.WriteString(dimStyle.Render("  could not reach Ollama: " + m.runningErr))
-		return b.String()
+		return dimStyle.Render("could not reach Ollama: " + m.runningErr)
 	}
 	if len(m.running) == 0 {
-		b.WriteString(dimStyle.Render("  (none loaded — a model loads on first request and unloads after its idle timeout)"))
-		return b.String()
+		return dimStyle.Render("(none loaded — a model loads on first request and unloads after its idle timeout)")
 	}
-	for _, r := range m.running {
+
+	var b strings.Builder
+	for i, r := range m.running {
 		name := tiers.HeaderLabel(r.Name)
 		expires := "—"
 		if r.ExpiresAt != "" {
 			if t, err := time.Parse(time.RFC3339, r.ExpiresAt); err == nil {
-				d := time.Until(t)
-				if d > 0 {
+				if d := time.Until(t); d > 0 {
 					expires = d.Round(time.Second).String()
 				} else {
 					expires = "expiring"
 				}
 			}
 		}
-		fmt.Fprintf(&b, "  %-28s  vram %-10s  ctx %-6d  unloads in %s\n",
+		fmt.Fprintf(&b, "%-28s  vram %-10s  ctx %-6d  unloads in %s",
 			name, sysmon.FormatBytes(r.SizeVRAMBytes), r.ContextLength, expires)
+		if i < len(m.running)-1 {
+			b.WriteString("\n")
+		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return b.String()
+}
+
+func (m Model) renderUsage() string {
+	records, err := usagelog.ReadAll()
+	if err != nil {
+		return dimStyle.Render("could not read usage log: " + err.Error())
+	}
+	summaries := usagelog.Summarize(records, time.Time{})
+	report := usagelog.RenderReport(summaries, "")
+	return strings.TrimLeft(report, "\n")
 }
