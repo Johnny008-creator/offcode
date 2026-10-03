@@ -194,6 +194,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.contextLimit = msg.contextLimit
 		m.phase = phaseChat
 		m.pushBlock(block{kind: blockBanner, text: renderBanner(m.cfg)})
+		if m.cfg.Model == "" {
+			// No -model flag given: pick one interactively instead of
+			// requiring the user to already know a tag on the command
+			// line — `offcode` alone should just work.
+			m.pushBlock(block{kind: blockSystem, text: "no model given — pick one to get started"})
+			mm, cmd := m.openModelPicker(pickerNone)
+			return mm, tea.Batch(tickCmd(), cmd)
+		}
 		return m, tickCmd()
 
 	case backend.StreamEvent:

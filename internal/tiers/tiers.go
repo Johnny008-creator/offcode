@@ -51,6 +51,9 @@ func For(tag string) (ModelTier, bool) {
 // Label formats a model tag for display, with its offcode tier identity
 // and tagline when known.
 func Label(tag string) string {
+	if tag == "" {
+		return "none selected"
+	}
 	if t, ok := For(tag); ok {
 		return t.DisplayName + " (" + tag + ") — " + t.Tagline
 	}
@@ -60,6 +63,9 @@ func Label(tag string) string {
 // HeaderLabel is a shorter form for single-line contexts, without the
 // tagline.
 func HeaderLabel(tag string) string {
+	if tag == "" {
+		return "none selected"
+	}
 	if t, ok := For(tag); ok {
 		return t.DisplayName + " (" + tag + ")"
 	}

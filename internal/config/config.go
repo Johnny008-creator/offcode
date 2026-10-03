@@ -45,9 +45,10 @@ func Resolve(backendFlag, baseURLFlag, model, modeFlag string) (Config, error) {
 		return Config{}, err
 	}
 
-	if model == "" {
-		return Config{}, fmt.Errorf("-model is required (e.g. qwen2.5-coder:32b)")
-	}
+	// Model is deliberately allowed to be empty here: the chat TUI opens
+	// the model picker on startup when none is given, so `offcode` alone
+	// (no flags at all) works — picking a model is a UI step, not
+	// something the user must already know a tag for on the command line.
 
 	return Config{Backend: backendFlag, BaseURL: baseURL, Model: model, Mode: mode}, nil
 }

@@ -50,13 +50,16 @@ go build -o bin/offcode ./cmd/offcode
 Requires Ollama or LM Studio running locally with a tool-calling-capable
 model loaded.
 
-Recommended default: `qwen3:8b` — validated against offcode with reliable
-native tool-calling and good speed on modest hardware (see
-[docs/DECISIONS.md](docs/DECISIONS.md) for benchmarks and AMD/Vulkan GPU
-setup notes).
+```sh
+./bin/offcode
+```
+
+No flags needed — leaving out `-model` opens the model picker on startup
+instead of erroring, so this just works as long as something's pulled in
+Ollama. Flags are there for skipping straight past that when you already
+know what you want:
 
 ```sh
-ollama pull qwen3:8b
 ./bin/offcode -backend ollama -model qwen3:8b
 ./bin/offcode -backend lmstudio -model devstral-small
 ```
@@ -64,7 +67,7 @@ ollama pull qwen3:8b
 Flags:
 
 - `-backend` — `ollama` (default) or `lmstudio`
-- `-model` — required, model name as known to the backend
+- `-model` — optional; omit it to pick from a live list on startup
 - `-base-url` — override the backend's default OpenAI-compatible URL
 - `-mode` — `plan` (read-only), `default` (confirm writes/bash), or `auto`
 
