@@ -37,17 +37,42 @@ func main() {
 		case "usage":
 			runUsage(os.Args[2:])
 			return
+		case "config":
+			runConfig(os.Args[2:])
+			return
 		}
 	}
 	runChat(os.Args[1:])
 }
 
+// chatDefaults are the hardcoded fallbacks when neither a CLI flag nor the
+// saved ~/.offcode/config.json has an opinion.
+var chatDefaults = config.FileConfig{Backend: "ollama", Mode: "default"}
+
 func runChat(args []string) {
+	saved, err := config.LoadFile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "offcode: warning: couldn't read ~/.offcode/config.json:", err)
+	}
+	def := chatDefaults
+	if saved.Backend != "" {
+		def.Backend = saved.Backend
+	}
+	if saved.Model != "" {
+		def.Model = saved.Model
+	}
+	if saved.Mode != "" {
+		def.Mode = saved.Mode
+	}
+	if saved.BaseURL != "" {
+		def.BaseURL = saved.BaseURL
+	}
+
 	fs := flag.NewFlagSet("offcode", flag.ExitOnError)
-	backendFlag := fs.String("backend", "ollama", "backend to use: ollama or lmstudio")
-	baseURLFlag := fs.String("base-url", "", "override the backend's OpenAI-compatible base URL")
-	modelFlag := fs.String("model", "", "model name as known to the backend (e.g. qwen2.5-coder:32b)")
-	modeFlag := fs.String("mode", "default", "permission mode: plan, default, or auto")
+	backendFlag := fs.String("backend", def.Backend, "backend to use: ollama or lmstudio")
+	baseURLFlag := fs.String("base-url", def.BaseURL, "override the backend's OpenAI-compatible base URL")
+	modelFlag := fs.String("model", def.Model, "model name as known to the backend (e.g. qwen2.5-coder:32b)")
+	modeFlag := fs.String("mode", def.Mode, "permission mode: plan, default, or auto")
 	fs.Parse(args)
 
 	cfg, err := config.Resolve(*backendFlag, *baseURLFlag, *modelFlag, *modeFlag)
@@ -72,6 +97,68 @@ func runMonitor(args []string) {
 		fmt.Fprintln(os.Stderr, "offcode monitor:", err)
 		os.Exit(1)
 	}
+}
+
+func runConfig(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: offcode config show | offcode config set [-backend=X] [-model=Y] [-mode=Z] [-base-url=W]")
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "show":
+		fc, err := config.LoadFile()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "offcode config:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("backend:  %s\n", orNone(fc.Backend))
+		fmt.Printf("model:    %s\n", orNone(fc.Model))
+		fmt.Printf("mode:     %s\n", orNone(fc.Mode))
+		fmt.Printf("base-url: %s\n", orNone(fc.BaseURL))
+
+	case "set":
+		fs := flag.NewFlagSet("offcode config set", flag.ExitOnError)
+		backendFlag := fs.String("backend", "", "save as default backend")
+		modelFlag := fs.String("model", "", "save as default model")
+		modeFlag := fs.String("mode", "", "save as default permission mode")
+		baseURLFlag := fs.String("base-url", "", "save as default base URL")
+		fs.Parse(args[1:])
+
+		fc, err := config.LoadFile()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "offcode config:", err)
+			os.Exit(1)
+		}
+		if *backendFlag != "" {
+			fc.Backend = *backendFlag
+		}
+		if *modelFlag != "" {
+			fc.Model = *modelFlag
+		}
+		if *modeFlag != "" {
+			fc.Mode = *modeFlag
+		}
+		if *baseURLFlag != "" {
+			fc.BaseURL = *baseURLFlag
+		}
+		if err := config.SaveFile(fc); err != nil {
+			fmt.Fprintln(os.Stderr, "offcode config:", err)
+			os.Exit(1)
+		}
+		fmt.Println("saved to ~/.offcode/config.json")
+
+	default:
+		fmt.Fprintln(os.Stderr, "offcode config: unknown subcommand", args[0], "(expected show or set)")
+		os.Exit(1)
+	}
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "(not set)"
+	}
+	return s
 }
 
 func runUsage(args []string) {
