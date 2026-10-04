@@ -500,6 +500,7 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) submitUserMessage(text string) (tea.Model, tea.Cmd) {
+	m.maybeCompact()
 	m.pushBlock(block{kind: blockUser, text: text})
 	m.viewport.GotoBottom()
 	m.messages = append(m.messages, backend.Message{Role: "user", Content: text})
