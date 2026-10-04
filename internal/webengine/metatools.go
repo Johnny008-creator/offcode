@@ -61,6 +61,15 @@ func visionToolDefinition() backend.Tool {
 	}}
 }
 
+func previewPageToolDefinition() backend.Tool {
+	return backend.Tool{Type: "function", Function: backend.FunctionDef{
+		Name: "preview_page",
+		Description: "Render a local HTML file (or URL) in a real headless browser and see a screenshot of it — " +
+			"use this to check your own UI/CSS work actually looks right, not just that the markup is valid.",
+		Parameters: metaSchema(`{"path":{"type":"string","description":"Local file path or http(s) URL"},"width":{"type":"integer","description":"Viewport width in px, defaults to 1280"},"height":{"type":"integer","description":"Viewport height in px, defaults to 800"}}`, "path"),
+	}}
+}
+
 type planStepStatus int
 
 const (

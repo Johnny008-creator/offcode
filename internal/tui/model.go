@@ -20,6 +20,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
 	"github.com/Johnny008-creator/offcode/internal/hooks"
+	"github.com/Johnny008-creator/offcode/internal/mcpclient"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/session"
@@ -112,6 +113,9 @@ type Model struct {
 	webAddr  string
 	hooksCfg hooks.Config
 
+	mcpMgr   *mcpclient.Manager
+	mcpTools []backend.Tool
+
 	quitting bool
 }
 
@@ -188,7 +192,28 @@ func Run(cfg config.Config) error {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(splashCmd(m.client, m.cfg), m.spinner.Tick)
+	return tea.Batch(splashCmd(m.client, m.cfg), m.spinner.Tick, connectMCPCmd(m.cwd))
+}
+
+// connectMCPCmd loads ~/.offcode/mcp.json + <cwd>/.offcode/mcp.json and
+// connects to every configured MCP server in the background — this can
+// involve starting subprocesses (and, for npx-based servers, fetching a
+// package), so it must never block TUI startup. Absent config is the
+// common case and resolves instantly with zero tools.
+func connectMCPCmd(cwd string) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := mcpclient.Load(cwd)
+		if err != nil {
+			return mcpConnectedMsg{warnings: []string{"couldn't read MCP config: " + err.Error()}}
+		}
+		if len(cfg.Servers) == 0 {
+			return mcpConnectedMsg{}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		mgr, warnings := mcpclient.Connect(ctx, cfg)
+		return mcpConnectedMsg{mgr: mgr, tools: mgr.Tools(), warnings: warnings}
+	}
 }
 
 func splashCmd(c *backend.Client, cfg config.Config) tea.Cmd {
@@ -286,6 +311,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case contextRefreshedMsg:
 		m.contextLimit = msg.limit
 		m.visionCapable = msg.visionCapable
+		return m, nil
+
+	case mcpConnectedMsg:
+		m.mcpMgr = msg.mgr
+		m.mcpTools = msg.tools
+		for _, w := range msg.warnings {
+			m.pushBlock(block{kind: blockSystem, text: "mcp: " + w})
+		}
+		if len(msg.tools) > 0 {
+			m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("connected %d MCP tool(s)", len(msg.tools))})
+			m.refreshViewport()
+		}
 		return m, nil
 
 	case clipboardCopiedMsg:
@@ -455,7 +492,7 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = stateGenerating
 		m.activity = "running tool: " + tc.Function.Name
 		m.resizeViewport()
-		return m, execToolCmd(tc)
+		return m, execToolCmd(tc, m.mcpMgr)
 	case "n", "esc", "ctrl+c":
 		tc := *m.pendingConfirm
 		m.pendingConfirm = nil
@@ -618,7 +655,7 @@ func (m Model) startGeneration() (tea.Model, tea.Cmd) {
 	req := backend.ChatRequest{
 		Model:    m.cfg.Model,
 		Messages: m.messages,
-		Tools:    toolsForModel(m.cfg.Model, m.visionCapable),
+		Tools:    toolsForModel(m.cfg.Model, m.visionCapable, m.mcpTools),
 	}
 
 	var ch <-chan backend.StreamEvent
@@ -785,6 +822,8 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handleLoadSkill(tc)
 	case "view_image":
 		return m.handleViewImage(tc)
+	case "preview_page":
+		return m.handlePreviewPage(tc)
 	}
 
 	// Loop breaker: a model that gets an error back sometimes just retries
@@ -828,7 +867,7 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 	}
 
 	m.activity = "running tool: " + tc.Function.Name
-	return m, execToolCmd(tc)
+	return m, execToolCmd(tc, m.mcpMgr)
 }
 
 func extractPath(argsJSON string) string {
@@ -839,9 +878,17 @@ func extractPath(argsJSON string) string {
 	return a.Path
 }
 
-func execToolCmd(tc backend.ToolCall) tea.Cmd {
+func execToolCmd(tc backend.ToolCall, mcpMgr *mcpclient.Manager) tea.Cmd {
 	return func() tea.Msg {
-		out, err := tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+		var out string
+		var err error
+		if mcpclient.IsMCPTool(tc.Function.Name) {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			out, err = mcpMgr.Dispatch(ctx, tc.Function.Name, tc.Function.Arguments)
+		} else {
+			out, err = tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+		}
 		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, args: tc.Function.Arguments, path: extractPath(tc.Function.Arguments), output: out, err: err}
 	}
 }

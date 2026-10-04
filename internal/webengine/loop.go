@@ -2,6 +2,7 @@ package webengine
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/agent"
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/hooks"
+	"github.com/Johnny008-creator/offcode/internal/mcpclient"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/skills"
@@ -136,6 +138,7 @@ func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error
 	backendKind := s.cfg.Backend
 	think := s.think
 	vision := s.visionCapable
+	mcpTools := s.mcpTools
 	msgs := append([]backend.Message(nil), s.messages...)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelFn = cancel
@@ -143,7 +146,7 @@ func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error
 	s.mu.Unlock()
 	defer cancel()
 
-	req := backend.ChatRequest{Model: model, Messages: msgs, Tools: toolsForModel(model, vision)}
+	req := backend.ChatRequest{Model: model, Messages: msgs, Tools: toolsForModel(model, vision, mcpTools)}
 
 	var ch <-chan backend.StreamEvent
 	if backendKind == "ollama" {
@@ -232,6 +235,9 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 	case "view_image":
 		s.handleViewImage(tc)
 		return
+	case "preview_page":
+		s.handlePreviewPage(tc)
+		return
 	}
 
 	s.mu.Lock()
@@ -287,7 +293,18 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 	s.notify()
 	s.mu.Unlock()
 
-	out, err := tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+	var out string
+	var err error
+	if mcpclient.IsMCPTool(tc.Function.Name) {
+		s.mu.Lock()
+		mgr := s.mcpMgr
+		s.mu.Unlock()
+		mcpCtx, mcpCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		out, err = mgr.Dispatch(mcpCtx, tc.Function.Name, tc.Function.Arguments)
+		mcpCancel()
+	} else {
+		out, err = tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+	}
 	if err != nil {
 		content := "error: " + err.Error()
 		if out != "" {
@@ -495,6 +512,25 @@ func (s *Session) handleViewImage(tc backend.ToolCall) {
 		return
 	}
 	s.recordToolResultImage(tc, "image attached: "+a.Path, []string{b64})
+}
+
+func (s *Session) handlePreviewPage(tc backend.ToolCall) {
+	var a struct {
+		Path   string `json:"path"`
+		Width  int    `json:"width"`
+		Height int    `json:"height"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Path) == "" {
+		s.recordToolResult(tc, "error: preview_page requires a non-empty \"path\" string", true)
+		return
+	}
+	png, err := tools.PreviewPage(a.Path, a.Width, a.Height)
+	if err != nil {
+		s.recordToolResult(tc, "error: "+err.Error(), true)
+		return
+	}
+	b64 := base64.StdEncoding.EncodeToString(png)
+	s.recordToolResultImage(tc, "screenshot captured: "+a.Path, []string{b64})
 }
 
 // recordToolResultImage is recordToolResult but attaches image data to

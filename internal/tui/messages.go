@@ -1,6 +1,11 @@
 package tui
 
-import "time"
+import (
+	"time"
+
+	"github.com/Johnny008-creator/offcode/internal/backend"
+	"github.com/Johnny008-creator/offcode/internal/mcpclient"
+)
 
 type splashDoneMsg struct {
 	contextLimit  int
@@ -26,4 +31,10 @@ type modelsLoadedMsg struct {
 type contextRefreshedMsg struct {
 	limit         int
 	visionCapable bool
+}
+
+type mcpConnectedMsg struct {
+	mgr      *mcpclient.Manager
+	tools    []backend.Tool
+	warnings []string
 }

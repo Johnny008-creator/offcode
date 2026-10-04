@@ -201,11 +201,12 @@ func memorySection() string {
 		"treat these as standing facts/preferences unless the user says otherwise this turn):\n" + notes
 }
 
-func toolsForModel(modelTag string, visionCapable bool) []backend.Tool {
+func toolsForModel(modelTag string, visionCapable bool, mcpTools []backend.Tool) []backend.Tool {
 	all := append(tools.Definitions(), metaToolDefinitions()...)
 	if visionCapable {
-		all = append(all, visionToolDefinition())
+		all = append(all, visionToolDefinition(), previewPageToolDefinition())
 	}
+	all = append(all, mcpTools...)
 	if modelTag != sparkTag {
 		return all
 	}

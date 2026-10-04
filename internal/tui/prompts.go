@@ -219,11 +219,12 @@ func memorySection() string {
 // startup via the backend's /api/show capabilities, cached — see
 // Model.visionCapable) since sending an "images" field to a model that
 // can't use it is either ignored or an error depending on the backend.
-func toolsForModel(modelTag string, visionCapable bool) []backend.Tool {
+func toolsForModel(modelTag string, visionCapable bool, mcpTools []backend.Tool) []backend.Tool {
 	all := append(tools.Definitions(), metaToolDefinitions()...)
 	if visionCapable {
-		all = append(all, visionToolDefinition())
+		all = append(all, visionToolDefinition(), previewPageToolDefinition())
 	}
+	all = append(all, mcpTools...)
 	if modelTag != sparkTag {
 		return all
 	}

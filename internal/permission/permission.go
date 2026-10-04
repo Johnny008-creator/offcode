@@ -11,11 +11,12 @@ const (
 )
 
 var readOnlyTools = map[string]bool{
-	"read":       true,
-	"grep":       true,
-	"glob":       true,
-	"web_search": true,
-	"fetch_url":  true,
+	"read":         true,
+	"grep":         true,
+	"glob":         true,
+	"web_search":   true,
+	"fetch_url":    true,
+	"browser_text": true,
 }
 
 var deniedBashSubstrings = []string{

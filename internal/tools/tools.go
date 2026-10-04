@@ -54,6 +54,12 @@ func Definitions() []backend.Tool {
 			Description: "Fetch a URL and return its readable text content (HTML tags stripped). Use after web_search to read a specific page in full.",
 			Parameters:  schema(`{"url":{"type":"string"}}`, "url"),
 		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name: "browser_text",
+			Description: "Render a local HTML file or URL in a real headless browser (JavaScript included) and return its visible text. " +
+				"Use this over fetch_url when a page's content is generated/modified by JavaScript rather than present in the static HTML.",
+			Parameters: schema(`{"path":{"type":"string","description":"Local file path or http(s) URL"}}`, "path"),
+		}},
 	}
 }
 
@@ -142,7 +148,15 @@ func Dispatch(name string, argsJSON string) (string, error) {
 			return "", err
 		}
 		return FetchURL(a.URL)
+	case "browser_text":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+			return "", err
+		}
+		return RenderedText(a.Path)
 	default:
-		return "", fmt.Errorf("unknown tool: %q (available tools: read, write, edit, bash, grep, glob, web_search, fetch_url)", name)
+		return "", fmt.Errorf("unknown tool: %q (available tools: read, write, edit, bash, grep, glob, web_search, fetch_url, browser_text)", name)
 	}
 }

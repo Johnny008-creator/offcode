@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -246,6 +247,17 @@ func visionToolDefinition() backend.Tool {
 	}}
 }
 
+// previewPageToolDefinition is also vision-gated (see toolsForModel) —
+// a screenshot is only useful to a model that can actually see it.
+func previewPageToolDefinition() backend.Tool {
+	return backend.Tool{Type: "function", Function: backend.FunctionDef{
+		Name: "preview_page",
+		Description: "Render a local HTML file (or URL) in a real headless browser and see a screenshot of it — " +
+			"use this to check your own UI/CSS work actually looks right, not just that the markup is valid.",
+		Parameters: metaSchema(`{"path":{"type":"string","description":"Local file path or http(s) URL"},"width":{"type":"integer","description":"Viewport width in px, defaults to 1280"},"height":{"type":"integer","description":"Viewport height in px, defaults to 800"}}`, "path"),
+	}}
+}
+
 func (m Model) handleViewImage(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 	var a struct {
 		Path string `json:"path"`
@@ -258,6 +270,23 @@ func (m Model) handleViewImage(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 		return m.recordToolResult(tc, "error: "+err.Error(), true)
 	}
 	return m.recordToolResultImage(tc, "image attached: "+a.Path, []string{b64})
+}
+
+func (m Model) handlePreviewPage(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	var a struct {
+		Path   string `json:"path"`
+		Width  int    `json:"width"`
+		Height int    `json:"height"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Path) == "" {
+		return m.recordToolResult(tc, "error: preview_page requires a non-empty \"path\" string", true)
+	}
+	png, err := tools.PreviewPage(a.Path, a.Width, a.Height)
+	if err != nil {
+		return m.recordToolResult(tc, "error: "+err.Error(), true)
+	}
+	b64 := base64.StdEncoding.EncodeToString(png)
+	return m.recordToolResultImage(tc, "screenshot captured: "+a.Path, []string{b64})
 }
 
 func (m Model) handleLoadSkill(tc backend.ToolCall) (tea.Model, tea.Cmd) {

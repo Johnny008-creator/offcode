@@ -10,6 +10,7 @@ package webengine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
 	"github.com/Johnny008-creator/offcode/internal/hooks"
+	"github.com/Johnny008-creator/offcode/internal/mcpclient"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/session"
 )
@@ -112,6 +114,8 @@ type Session struct {
 	sessionID     string
 	visionCapable bool
 	hooksCfg      hooks.Config
+	mcpMgr        *mcpclient.Manager
+	mcpTools      []backend.Tool
 
 	subs   map[int]chan struct{}
 	nextID int
@@ -134,6 +138,8 @@ func NewSession(cfg config.Config) *Session {
 		hooksCfg:  hooksCfg,
 	}
 
+	go s.connectMCP()
+
 	if cfg.Resume {
 		if sessions, err := session.List(cwd); err == nil && len(sessions) > 0 {
 			s.loadLocked(sessions[0].ID)
@@ -144,6 +150,38 @@ func NewSession(cfg config.Config) *Session {
 	s.startNewLocked()
 	s.refreshVisionCapability()
 	return s
+}
+
+// connectMCP loads MCP server config and connects in the background —
+// this can involve starting subprocesses (and, for npx-based servers,
+// fetching a package), so it must never block session construction /
+// the web server's startup. Pushes a system note with the result either
+// way, same as a tool-result block, so it's visible in the transcript.
+func (s *Session) connectMCP() {
+	cfg, err := mcpclient.Load(s.cwd)
+	if err != nil {
+		s.pushBlock(Block{Kind: BlockSystem, Text: "mcp: couldn't read config: " + err.Error()})
+		return
+	}
+	if len(cfg.Servers) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mgr, warnings := mcpclient.Connect(ctx, cfg)
+
+	s.mu.Lock()
+	s.mcpMgr = mgr
+	s.mcpTools = mgr.Tools()
+	n := len(s.mcpTools)
+	s.mu.Unlock()
+
+	for _, w := range warnings {
+		s.pushBlock(Block{Kind: BlockSystem, Text: "mcp: " + w})
+	}
+	if n > 0 {
+		s.pushBlock(Block{Kind: BlockSystem, Text: fmt.Sprintf("connected %d MCP tool(s)", n)})
+	}
 }
 
 // refreshVisionCapability queries whether the active model supports
