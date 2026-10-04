@@ -246,6 +246,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 const pickerReservedHeight = 10
+const confirmReservedHeight = 16
 
 func (m *Model) resizeViewport() {
 	if !m.ready {
@@ -254,8 +255,11 @@ func (m *Model) resizeViewport() {
 	headerH := 3
 	footerH := 1
 	bottomH := 2
-	if m.picker != pickerNone {
+	switch {
+	case m.picker != pickerNone:
 		bottomH = pickerReservedHeight
+	case m.state == stateConfirming:
+		bottomH = confirmReservedHeight
 	}
 	planH := 0
 	if n := len(m.planSteps); n > 0 {
@@ -385,6 +389,7 @@ func (m *Model) restyleInput() {
 func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.pendingConfirm == nil {
 		m.state = stateIdle
+		m.resizeViewport()
 		return m, nil
 	}
 
@@ -394,10 +399,12 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingConfirm = nil
 		m.state = stateGenerating
 		m.activity = "running tool: " + tc.Function.Name
+		m.resizeViewport()
 		return m, execToolCmd(tc)
 	case "n", "esc", "ctrl+c":
 		tc := *m.pendingConfirm
 		m.pendingConfirm = nil
+		m.resizeViewport()
 		return m.recordToolResult(tc, "DENIED: user declined confirmation", true)
 	}
 	return m, nil
@@ -673,6 +680,7 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		m.state = stateConfirming
 		m.pendingConfirm = &tc
 		m.activity = "awaiting confirmation"
+		m.resizeViewport()
 		return m, nil
 	}
 

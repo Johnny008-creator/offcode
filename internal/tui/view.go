@@ -25,10 +25,14 @@ func (m Model) View() string {
 	body := m.viewport.View()
 
 	var bottom, footer string
-	if m.picker != pickerNone {
+	switch {
+	case m.picker != pickerNone:
 		bottom = m.pickerView()
 		footer = footerStyle.Render(" ↑↓ navigate · enter select · esc back")
-	} else {
+	case m.state == stateConfirming && m.pendingConfirm != nil:
+		bottom = m.confirmView()
+		footer = footerStyle.Render(" y allow · n/esc deny")
+	default:
 		bottom = lipgloss.JoinVertical(lipgloss.Left, m.statusView(), m.inputView())
 		footer = footerStyle.Render(" ctrl+d exit · ctrl+c stop/exit · enter send · ↑↓/pgup/pgdn scroll · ctrl+t thinking · ctrl+y copy · /settings")
 	}
@@ -132,6 +136,48 @@ func (m Model) pickerView() string {
 	return confirmBoxStyle.Width(width).Render(box)
 }
 
+// padLine right-pads s with spaces to width visible columns (ANSI-aware
+// via lipgloss.Width), so a box of these lines can be rendered without an
+// explicit Width() constraint — see confirmView/pickerView: a Width()-
+// constrained Render() on pre-joined multi-line ANSI content reflows it
+// instead of just drawing a border (hit this in the monitor's charts and
+// the chat plan panel; documented in docs/DECISIONS.md).
+func padLine(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+func (m Model) confirmView() string {
+	width := m.width - 4
+	if width < 10 {
+		width = 10
+	}
+
+	header, diffLines := confirmPreview(*m.pendingConfirm)
+
+	var lines []string
+	lines = append(lines, padLine(headerStyle.Render(truncate(header, width)), width))
+	for _, dl := range diffLines {
+		var text string
+		switch dl.kind {
+		case diffRemoved:
+			text = errorStyle.Render(truncate("- "+dl.text, width))
+		case diffAdded:
+			text = resultLabelStyle.Render(truncate("+ "+dl.text, width))
+		default:
+			text = subHeaderStyle.Render(truncate(dl.text, width))
+		}
+		lines = append(lines, padLine(text, width))
+	}
+	lines = append(lines, padLine("", width))
+	lines = append(lines, padLine(assistantLabelStyle.Render(fmt.Sprintf("allow %s? [y/n]", m.pendingConfirm.Function.Name)), width))
+
+	return confirmBoxStyle.Render(strings.Join(lines, "\n"))
+}
+
 func (m Model) splashView() string {
 	banner := renderBanner(m.cfg)
 	sub := splashSubStyle.Render(fmt.Sprintf("connecting to %s…", m.cfg.BaseURL))
@@ -154,8 +200,6 @@ func (m Model) headerView() string {
 func (m Model) statusView() string {
 	var left string
 	switch {
-	case m.state == stateConfirming && m.pendingConfirm != nil:
-		left = confirmBoxStyle.Render(fmt.Sprintf("allow %s(%s)? [y/n]", m.pendingConfirm.Function.Name, truncate(m.pendingConfirm.Function.Arguments, 80)))
 	case m.state == stateGenerating:
 		left = m.spinner.View() + " " + m.activity + "…"
 	default:
