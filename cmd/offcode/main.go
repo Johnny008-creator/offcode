@@ -77,7 +77,7 @@ func runChat(args []string) {
 	baseURLFlag := fs.String("base-url", def.BaseURL, "override the backend's OpenAI-compatible base URL")
 	modelFlag := fs.String("model", def.Model, "model name as known to the backend (e.g. qwen2.5-coder:32b)")
 	modeFlag := fs.String("mode", def.Mode, "permission mode: plan, default, or auto")
-	freshFlag := fs.Bool("fresh", false, "ignore any saved session for this directory and start clean")
+	resumeFlag := fs.Bool("resume", false, "pick a saved session for this directory to continue, instead of starting new")
 	fs.Parse(args)
 
 	cfg, err := config.Resolve(*backendFlag, *baseURLFlag, *modelFlag, *modeFlag)
@@ -86,7 +86,7 @@ func runChat(args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	cfg.Fresh = *freshFlag
+	cfg.Resume = *resumeFlag
 
 	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "offcode:", err)
@@ -119,7 +119,7 @@ func runWeb(args []string) {
 	baseURLFlag := fs.String("base-url", def.BaseURL, "override the backend's OpenAI-compatible base URL")
 	modelFlag := fs.String("model", def.Model, "model name as known to the backend; omit to pick from the browser")
 	modeFlag := fs.String("mode", def.Mode, "permission mode: plan, default, or auto")
-	freshFlag := fs.Bool("fresh", false, "ignore any saved session for this directory and start clean")
+	resumeFlag := fs.Bool("resume", false, "attach to this directory's most recently saved session instead of starting new (the browser sidebar can switch to any session regardless)")
 	fs.Parse(args)
 
 	cfg, err := config.Resolve(*backendFlag, *baseURLFlag, *modelFlag, *modeFlag)
@@ -128,7 +128,7 @@ func runWeb(args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	cfg.Fresh = *freshFlag
+	cfg.Resume = *resumeFlag
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
 	if err := webserver.Serve(addr, cfg); err != nil {

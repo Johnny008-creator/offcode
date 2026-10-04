@@ -9,6 +9,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/permission"
+	"github.com/Johnny008-creator/offcode/internal/session"
 )
 
 type pickerKind int
@@ -20,6 +21,7 @@ const (
 	pickerMode
 	pickerModel
 	pickerAskUser
+	pickerResume
 )
 
 var effortLevels = []backend.ThinkLevel{
@@ -121,6 +123,24 @@ func (m Model) openModelPicker(returnTo pickerKind) (Model, tea.Cmd) {
 	return m, fetchModelsCmd(m.client, m.cfg.Backend)
 }
 
+// openResumePicker lists saved sessions for the current directory, newest
+// first, with a "start a new session" entry pinned at the top. Used both
+// at startup (-resume) and mid-run (/sessions).
+func (m Model) openResumePicker(sessions []session.Meta) Model {
+	m.picker = pickerResume
+	m.pickerReturnTo = pickerNone
+	m.pickerSessions = sessions
+	items := make([]string, 0, len(sessions)+1)
+	items = append(items, "▸ start a new session")
+	for _, s := range sessions {
+		items = append(items, fmt.Sprintf("%s · %d msgs · %s", s.SavedAt.Format("2006-01-02 15:04"), s.Messages, s.Summary))
+	}
+	m.pickerItems = items
+	m.pickerCursor = 0
+	m.resizeViewport()
+	return m
+}
+
 func fetchModelsCmd(c *backend.Client, backendKind string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -143,6 +163,11 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		if m.picker == pickerAskUser {
 			return m.cancelAskUser()
+		}
+		if m.picker == pickerResume {
+			m.picker = pickerNone
+			m.resizeViewport()
+			return m.afterSessionDecided()
 		}
 		return m.closePicker(""), nil
 
@@ -226,6 +251,61 @@ func (m Model) applyPickerSelection() (tea.Model, tea.Cmd) {
 
 	case pickerAskUser:
 		return m.resolveAskUser()
+
+	case pickerResume:
+		return m.applyResumeSelection()
 	}
 	return m, nil
+}
+
+// applyResumeSelection handles the resume picker's choice: either a
+// brand-new session, or a specific saved one. Either way it rebuilds the
+// visible transcript from scratch (just the banner, then whatever's being
+// loaded) rather than appending — this runs both at startup and mid-run
+// via /sessions, and mid-run the old conversation's blocks should
+// disappear from view on a switch, not pile up alongside the new one.
+func (m Model) applyResumeSelection() (tea.Model, tea.Cmd) {
+	m.picker = pickerNone
+
+	if m.pickerCursor == 0 || m.pickerCursor-1 >= len(m.pickerSessions) {
+		m.sessionID = session.NewID()
+		m.messages = []backend.Message{{Role: "system", Content: buildSystemPrompt(m.cfg.Model)}}
+		m.resumedCount = 0
+		m.blocks = []block{{kind: blockBanner, text: renderBanner(m.cfg)}}
+		m.resizeViewport()
+		m.pushBlock(block{kind: blockSystem, text: "started a new session"})
+		return m.afterSessionDecided()
+	}
+
+	chosen := m.pickerSessions[m.pickerCursor-1]
+	saved, ok, err := session.Load(m.cwd, chosen.ID)
+	if err != nil || !ok {
+		m.blocks = []block{{kind: blockBanner, text: renderBanner(m.cfg)}}
+		m.resizeViewport()
+		m.pushBlock(block{kind: blockError, text: "couldn't load session " + chosen.ID})
+		return m.afterSessionDecided()
+	}
+
+	m.sessionID = chosen.ID
+	if m.cfg.Model == "" && saved.Model != "" {
+		m.cfg.Model = saved.Model
+	}
+	m.messages = append([]backend.Message{{Role: "system", Content: buildSystemPrompt(m.cfg.Model)}}, saved.Messages...)
+	m.resumedCount = len(saved.Messages)
+	// Rendered only now, after cfg.Model may have just been restored from
+	// the saved session — rendering it earlier would bake in a stale
+	// "none selected" even though the header (which re-renders live) shows
+	// the right model a moment later.
+	m.blocks = []block{{kind: blockBanner, text: renderBanner(m.cfg)}}
+	m.resizeViewport()
+	m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("resumed session %s (%d messages)", chosen.ID, len(saved.Messages))})
+	for _, msg := range saved.Messages {
+		switch {
+		case msg.Role == "user":
+			m.pushBlock(block{kind: blockUser, text: msg.Content})
+		case msg.Role == "assistant" && msg.Content != "":
+			m.pushBlock(block{kind: blockAssistant, text: msg.Content})
+		}
+	}
+	return m.afterSessionDecided()
 }

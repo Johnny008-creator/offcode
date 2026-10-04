@@ -35,7 +35,7 @@ func (s *Session) runTurn() {
 			} else {
 				s.pushBlock(Block{Kind: BlockError, Text: err.Error(), IsError: true})
 			}
-			s.saveToDisk()
+			s.saveToDiskLocked()
 			s.notifyOnly()
 			return
 		}
@@ -90,7 +90,7 @@ func (s *Session) runTurn() {
 			s.status = "idle"
 			s.activity = ""
 			s.mu.Unlock()
-			s.saveToDisk()
+			s.saveToDiskLocked()
 			s.notifyOnly()
 			return
 		}
@@ -102,7 +102,7 @@ func (s *Session) runTurn() {
 			s.status = "idle"
 			s.activity = ""
 			s.mu.Unlock()
-			s.saveToDisk()
+			s.saveToDiskLocked()
 			return
 		}
 

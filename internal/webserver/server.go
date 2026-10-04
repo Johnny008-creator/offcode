@@ -92,6 +92,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/remember", s.handleRemember)
 	s.mux.HandleFunc("/api/stop", s.handleStop)
 	s.mux.HandleFunc("/api/usage", s.handleUsage)
+	s.mux.HandleFunc("/api/sessions", s.handleSessionsList)
+	s.mux.HandleFunc("/api/sessions/new", s.handleSessionNew)
+	s.mux.HandleFunc("/api/sessions/switch", s.handleSessionSwitch)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -334,6 +337,51 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sess.Stop()
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.sess.ListSessions()
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{
+		"sessions": sessions,
+		"current":  s.sess.CurrentSessionID(),
+	})
+}
+
+func (s *Server) handleSessionNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	if !s.sess.StartNew() {
+		httpError(w, http.StatusConflict, "a turn is already in progress")
+		return
+	}
+	writeJSON(w, s.sess.Snapshot())
+}
+
+type switchReq struct {
+	ID string `json:"id"`
+}
+
+func (s *Server) handleSessionSwitch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var req switchReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		httpError(w, http.StatusBadRequest, "expected JSON body {\"id\":\"...\"}")
+		return
+	}
+	if !s.sess.SwitchTo(req.ID) {
+		httpError(w, http.StatusConflict, "a turn is in progress, or that session doesn't exist")
+		return
+	}
+	writeJSON(w, s.sess.Snapshot())
 }
 
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {

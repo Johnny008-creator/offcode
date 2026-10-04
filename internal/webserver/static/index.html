@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>offcode</title>
+<link rel="stylesheet" href="vendor/hljs-dark.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <header id="topbar">
     <div class="brand">
+      <button id="sidebar-toggle" class="btn btn-ghost icon-btn" title="sessions">☰</button>
       <span class="logo">oc</span>
       <span class="title">offcode</span>
     </div>
@@ -28,6 +30,11 @@
   </header>
 
   <main id="layout">
+    <aside id="session-sidebar">
+      <button id="new-session-btn" class="btn btn-primary new-session-btn">+ new session</button>
+      <div id="session-list" class="session-list"></div>
+    </aside>
+
     <section id="transcript-wrap">
       <div id="transcript"></div>
       <form id="composer">
@@ -95,6 +102,9 @@
   </div>
 </div>
 
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script src="vendor/dompurify.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

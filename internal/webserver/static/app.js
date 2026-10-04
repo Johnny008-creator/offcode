@@ -11,6 +11,10 @@
   const composer = el('composer');
   const sendBtn = el('send-btn');
   const planList = el('plan-list');
+  const sessionSidebar = el('session-sidebar');
+  const sessionList = el('session-list');
+  const sidebarToggle = el('sidebar-toggle');
+  const newSessionBtn = el('new-session-btn');
 
   const modelPickerOverlay = el('model-picker-overlay');
   const modelListEl = el('model-list');
@@ -26,6 +30,21 @@
   let lastStatus = null;
   let modelPickerShown = false;
   let lastRenderKey = '';
+  let lastSessionId = null;
+
+  if (window.marked) {
+    marked.setOptions({ breaks: true, gfm: true });
+  }
+
+  // Rendering model output as HTML (for markdown) means sanitizing it —
+  // web_search/fetch_url content can end up quoted back by the model, and
+  // that content isn't trusted. DOMPurify strips anything that could
+  // execute (script tags, event handler attributes, javascript: hrefs)
+  // while keeping normal markdown-produced markup intact.
+  function renderMarkdown(text) {
+    const raw = window.marked ? marked.parse(text || '') : escapeHtml(text || '');
+    return window.DOMPurify ? DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] }) : raw;
+  }
 
   async function api(path, body) {
     const opts = body !== undefined
@@ -66,6 +85,15 @@
         div.textContent = (b.tool_name ? b.tool_name + ': ' : '') + b.text;
         break;
       }
+      case 'assistant': {
+        div.innerHTML = renderMarkdown(b.text || '');
+        if (window.hljs) {
+          div.querySelectorAll('pre code').forEach((code) => {
+            try { hljs.highlightElement(code); } catch (e) { /* best-effort */ }
+          });
+        }
+        break;
+      }
       default:
         div.textContent = b.text || '';
     }
@@ -101,6 +129,68 @@
       planList.appendChild(row);
     }
   }
+
+  function fmtWhen(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    return sameDay
+      ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  async function refreshSessions() {
+    try {
+      const data = await api('/api/sessions');
+      renderSessionList(data.sessions || [], data.current || '');
+    } catch (e) {
+      sessionList.innerHTML = '<div class="session-list-empty">' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function renderSessionList(sessions, currentId) {
+    if (!sessions.length) {
+      sessionList.innerHTML = '<div class="session-list-empty">no saved sessions yet</div>';
+      return;
+    }
+    sessionList.innerHTML = '';
+    for (const s of sessions) {
+      const row = document.createElement('div');
+      row.className = 'session-item' + (s.id === currentId ? ' active' : '');
+      const summary = document.createElement('span');
+      summary.className = 'session-summary';
+      summary.textContent = s.summary || '(empty session)';
+      const meta = document.createElement('span');
+      meta.className = 'session-meta';
+      meta.textContent = fmtWhen(s.saved_at) + ' · ' + s.messages + ' msgs';
+      row.appendChild(summary);
+      row.appendChild(meta);
+      row.addEventListener('click', async () => {
+        if (s.id === currentId) return;
+        try {
+          await api('/api/sessions/switch', { id: s.id });
+          sessionSidebar.classList.remove('open');
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+      sessionList.appendChild(row);
+    }
+  }
+
+  newSessionBtn.addEventListener('click', async () => {
+    try {
+      await api('/api/sessions/new', {});
+      sessionSidebar.classList.remove('open');
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  sidebarToggle.addEventListener('click', () => {
+    sessionSidebar.classList.toggle('open');
+  });
 
   function renderModelBadge(state) {
     if (state.model) {
@@ -166,6 +256,14 @@
       renderTranscript(state.blocks);
       lastRenderKey = key;
     }
+
+    // Refresh the session sidebar whenever we switch sessions, or right
+    // after a turn finishes (a new/renamed session may have just been
+    // written to disk with its first message as the summary).
+    if (state.session_id !== lastSessionId || (lastStatus !== 'idle' && state.status === 'idle')) {
+      refreshSessions();
+    }
+    lastSessionId = state.session_id;
 
     if (document.activeElement !== modeSelect) modeSelect.value = state.mode || 'default';
 
@@ -244,7 +342,7 @@
   });
 
   stopBtn.addEventListener('click', async () => {
-    try { await api('/api/stop'); } catch (e) { /* ignore */ }
+    try { await api('/api/stop', {}); } catch (e) { /* ignore */ }
   });
 
   el('confirm-allow').addEventListener('click', async () => {
@@ -307,4 +405,5 @@
   }
 
   connect();
+  refreshSessions();
 })();

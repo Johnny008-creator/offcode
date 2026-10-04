@@ -71,6 +71,7 @@ type State struct {
 	Ask          *AskView       `json:"ask,omitempty"`
 	TokensPerSec float64        `json:"tokens_per_sec"`
 	ResumedCount int            `json:"resumed_count"`
+	SessionID    string         `json:"session_id"`
 }
 
 type Session struct {
@@ -106,6 +107,7 @@ type Session struct {
 
 	tokensPerSec float64
 	resumedCount int
+	sessionID    string
 
 	subs   map[int]chan struct{}
 	nextID int
@@ -114,45 +116,112 @@ type Session struct {
 func NewSession(cfg config.Config) *Session {
 	cwd, _ := os.Getwd()
 
-	messages := []backend.Message{{Role: "system", Content: buildSystemPrompt(cfg.Model)}}
-	resumedCount := 0
-	var resumedBlocks []Block
-	if cfg.Fresh {
-		_ = session.Clear(cwd)
-	} else if saved, ok, err := session.Load(cwd); err == nil && ok && len(saved.Messages) > 0 {
-		messages = append(messages, saved.Messages...)
-		resumedCount = len(saved.Messages)
-		for _, msg := range saved.Messages {
-			switch msg.Role {
-			case "user":
-				if msg.Content != "" {
-					resumedBlocks = append(resumedBlocks, Block{Kind: BlockUser, Text: msg.Content})
-				}
-			case "assistant":
-				if msg.Content != "" {
-					resumedBlocks = append(resumedBlocks, Block{Kind: BlockAssistant, Text: msg.Content})
-				}
+	s := &Session{
+		cfg:       cfg,
+		client:    backend.NewClient(cfg.BaseURL),
+		cwd:       cwd,
+		status:    "idle",
+		readPaths: map[string]bool{},
+		subs:      map[int]chan struct{}{},
+	}
+
+	if cfg.Resume {
+		if sessions, err := session.List(cwd); err == nil && len(sessions) > 0 {
+			s.loadLocked(sessions[0].ID)
+			return s
+		}
+	}
+	s.startNewLocked()
+	return s
+}
+
+// startNewLocked resets to a brand-new, empty session. Caller must not
+// hold s.mu (it's only ever called before the session is exposed to
+// other goroutines — construction, or from StartNew which takes the lock
+// itself around calling it).
+func (s *Session) startNewLocked() {
+	s.sessionID = session.NewID()
+	s.messages = []backend.Message{{Role: "system", Content: buildSystemPrompt(s.cfg.Model)}}
+	s.blocks = nil
+	s.resumedCount = 0
+	s.plan = nil
+}
+
+// loadLocked loads an existing saved session by id. Same locking caveat
+// as startNewLocked.
+func (s *Session) loadLocked(id string) bool {
+	saved, ok, err := session.Load(s.cwd, id)
+	if err != nil || !ok {
+		return false
+	}
+	s.sessionID = id
+	if s.cfg.Model == "" && saved.Model != "" {
+		s.cfg.Model = saved.Model
+	}
+	s.messages = append([]backend.Message{{Role: "system", Content: buildSystemPrompt(s.cfg.Model)}}, saved.Messages...)
+	s.resumedCount = len(saved.Messages)
+	s.plan = nil
+
+	blocks := []Block{{Kind: BlockSystem, Text: "resumed session (" + itoa(s.resumedCount) + " earlier messages)"}}
+	for _, msg := range saved.Messages {
+		switch msg.Role {
+		case "user":
+			if msg.Content != "" {
+				blocks = append(blocks, Block{Kind: BlockUser, Text: msg.Content})
+			}
+		case "assistant":
+			if msg.Content != "" {
+				blocks = append(blocks, Block{Kind: BlockAssistant, Text: msg.Content})
 			}
 		}
 	}
+	s.blocks = blocks
+	return true
+}
 
-	blocks := []Block{}
-	if resumedCount > 0 {
-		blocks = append(blocks, Block{Kind: BlockSystem, Text: "resumed session (" + itoa(resumedCount) + " earlier messages)"})
-		blocks = append(blocks, resumedBlocks...)
-	}
+// ListSessions returns every saved session for this server's directory,
+// newest first, for the web UI's session sidebar.
+func (s *Session) ListSessions() ([]session.Meta, error) {
+	return session.List(s.cwd)
+}
 
-	return &Session{
-		cfg:          cfg,
-		client:       backend.NewClient(cfg.BaseURL),
-		cwd:          cwd,
-		messages:     messages,
-		blocks:       blocks,
-		status:       "idle",
-		readPaths:    map[string]bool{},
-		resumedCount: resumedCount,
-		subs:         map[int]chan struct{}{},
+// CurrentSessionID is this session's id, for the sidebar to highlight
+// which entry is active.
+func (s *Session) CurrentSessionID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessionID
+}
+
+// StartNew saves the current conversation (if any) and switches to a
+// brand-new, empty one. Refuses while a turn is in progress, same as
+// Submit — switching mid-generation would orphan the in-flight goroutine.
+func (s *Session) StartNew() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status != "idle" {
+		return false
 	}
+	s.saveToDiskLocked()
+	s.startNewLocked()
+	s.notify()
+	return true
+}
+
+// SwitchTo saves the current conversation and loads a different saved
+// session by id.
+func (s *Session) SwitchTo(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status != "idle" {
+		return false
+	}
+	s.saveToDiskLocked()
+	if !s.loadLocked(id) {
+		return false
+	}
+	s.notify()
+	return true
 }
 
 func itoa(n int) string {
@@ -229,6 +298,7 @@ func (s *Session) snapshotLocked() State {
 		Plan:         plan,
 		TokensPerSec: s.tokensPerSec,
 		ResumedCount: s.resumedCount,
+		SessionID:    s.sessionID,
 	}
 	if s.pendingConfirmTC != nil {
 		st.Confirm = &ConfirmView{ToolName: s.pendingConfirmTC.Function.Name, ToolArgs: s.pendingConfirmTC.Function.Arguments}
@@ -291,11 +361,16 @@ func (s *Session) Stop() {
 	}
 }
 
-func (s *Session) saveToDisk() {
-	if s.cwd == "" || len(s.messages) <= 1 {
+// saveToDiskLocked persists the current conversation under this
+// session's id. Doesn't take s.mu itself — every call site either
+// already holds it (StartNew, SwitchTo) or is in loop.go's established
+// pattern of touching session fields right after releasing the lock at
+// an idle transition, where nothing else is concurrently writing.
+func (s *Session) saveToDiskLocked() {
+	if s.cwd == "" || s.sessionID == "" || len(s.messages) <= 1 {
 		return
 	}
-	_ = session.Save(s.cwd, session.Saved{
+	_ = session.Save(s.cwd, s.sessionID, session.Saved{
 		Model:    s.cfg.Model,
 		Messages: append([]backend.Message(nil), s.messages[1:]...),
 	})

@@ -102,8 +102,10 @@ type Model struct {
 	streamEvents <-chan backend.StreamEvent
 	cancelGen    context.CancelFunc
 
-	cwd          string
-	resumedCount int
+	cwd            string
+	sessionID      string
+	resumedCount   int
+	pickerSessions []session.Meta
 
 	webAddr string
 
@@ -123,13 +125,6 @@ func New(cfg config.Config) Model {
 	cwd, _ := os.Getwd()
 
 	messages := []backend.Message{{Role: "system", Content: buildSystemPrompt(cfg.Model)}}
-	resumedCount := 0
-	if cfg.Fresh {
-		_ = session.Clear(cwd)
-	} else if saved, ok, err := session.Load(cwd); err == nil && ok && len(saved.Messages) > 0 {
-		messages = append(messages, saved.Messages...)
-		resumedCount = len(saved.Messages)
-	}
 
 	return Model{
 		cfg:          cfg,
@@ -143,23 +138,35 @@ func New(cfg config.Config) Model {
 		showThinking: true,
 		readPaths:    map[string]bool{},
 		cwd:          cwd,
-		resumedCount: resumedCount,
+		sessionID:    session.NewID(),
 	}
 }
 
 // saveSession persists the conversation so far (everything but the system
-// prompt, which gets rebuilt fresh on load) for this working directory.
+// prompt, which gets rebuilt fresh on load) under this session's id.
 // Best-effort: a failed save is silently ignored, same stance as usagelog
 // and the write-safety checks elsewhere — persistence is a convenience,
 // never something that should interrupt the chat loop.
 func (m Model) saveSession() {
-	if m.cwd == "" || len(m.messages) <= 1 {
+	if m.cwd == "" || m.sessionID == "" || len(m.messages) <= 1 {
 		return
 	}
-	_ = session.Save(m.cwd, session.Saved{
+	_ = session.Save(m.cwd, m.sessionID, session.Saved{
 		Model:    m.cfg.Model,
 		Messages: append([]backend.Message(nil), m.messages[1:]...),
 	})
+}
+
+// afterSessionDecided continues startup (or a mid-run session switch) once
+// it's settled whether a saved session was resumed — the one thing both
+// paths still need is picking a model if none is set yet.
+func (m Model) afterSessionDecided() (tea.Model, tea.Cmd) {
+	if m.cfg.Model == "" {
+		m.pushBlock(block{kind: blockSystem, text: "no model given — pick one to get started"})
+		mm, cmd := m.openModelPicker(pickerNone)
+		return mm, tea.Batch(tickCmd(), cmd)
+	}
+	return m, tickCmd()
 }
 
 func Run(cfg config.Config) error {
@@ -231,26 +238,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.contextLimit = msg.contextLimit
 		m.phase = phaseChat
 		m.pushBlock(block{kind: blockBanner, text: renderBanner(m.cfg)})
-		if m.resumedCount > 0 {
-			m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("resumed session for %s (%d earlier messages)", m.cwd, m.resumedCount)})
-			for _, msg := range m.messages[len(m.messages)-m.resumedCount:] {
-				switch {
-				case msg.Role == "user":
-					m.pushBlock(block{kind: blockUser, text: msg.Content})
-				case msg.Role == "assistant" && msg.Content != "":
-					m.pushBlock(block{kind: blockAssistant, text: msg.Content})
-				}
+
+		if m.cfg.Resume {
+			if sessions, err := session.List(m.cwd); err == nil && len(sessions) > 0 {
+				mm := m.openResumePicker(sessions)
+				return mm, tickCmd()
 			}
+			m.pushBlock(block{kind: blockSystem, text: "no saved sessions for this directory yet — starting a new one"})
 		}
-		if m.cfg.Model == "" {
-			// No -model flag given: pick one interactively instead of
-			// requiring the user to already know a tag on the command
-			// line — `offcode` alone should just work.
-			m.pushBlock(block{kind: blockSystem, text: "no model given — pick one to get started"})
-			mm, cmd := m.openModelPicker(pickerNone)
-			return mm, tea.Batch(tickCmd(), cmd)
-		}
-		return m, tickCmd()
+		return m.afterSessionDecided()
 
 	case backend.StreamEvent:
 		return m.handleStreamEvent(msg)
@@ -498,6 +494,19 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 	case "/usage":
 		m.pushBlock(block{kind: blockSystem, text: m.renderUsageReport()})
 
+	case "/sessions":
+		m.saveSession()
+		sessions, err := session.List(m.cwd)
+		if err != nil {
+			m.pushBlock(block{kind: blockError, text: "couldn't list sessions: " + err.Error()})
+			return m, nil
+		}
+		if len(sessions) == 0 {
+			m.pushBlock(block{kind: blockSystem, text: "no saved sessions for this directory yet"})
+			return m, nil
+		}
+		return m.openResumePicker(sessions), nil
+
 	case "/web":
 		if m.webAddr != "" {
 			m.pushBlock(block{kind: blockSystem, text: "web interface already running at http://" + m.webAddr})
@@ -552,7 +561,7 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 		m.pushBlock(block{kind: blockSystem, text: "remembered: " + note})
 
 	default:
-		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, /research, /web, or /thinking)"})
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, /research, /web, /sessions, or /thinking)"})
 	}
 	return m, nil
 }

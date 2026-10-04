@@ -94,6 +94,8 @@ func (m Model) pickerView() string {
 		title = "Select model"
 	case pickerAskUser:
 		title = "offcode is asking"
+	case pickerResume:
+		title = "Sessions"
 	}
 
 	width := m.width - 4

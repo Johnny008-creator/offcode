@@ -12,9 +12,10 @@ type Config struct {
 	Model   string
 	Mode    permission.Mode
 
-	// Fresh skips resuming a saved session for the current working
-	// directory, even if one exists.
-	Fresh bool
+	// Resume opts into picking a saved session for the current working
+	// directory to continue. Without it, offcode always starts a brand
+	// new session — nothing auto-resumes.
+	Resume bool
 }
 
 var presetBaseURLs = map[string]string{
