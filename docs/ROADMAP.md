@@ -186,10 +186,12 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
 - ~~**[S] `offcode doctor --fix`.**~~ **Done 2026-10-04** — pulls missing
   tier models automatically; doesn't yet start Ollama/SearXNG if those
   aren't reachable, just the model-pull part.
-- **[M] Git-aware helpers.** A tool or system-prompt policy for
-  committing after a successful task, or drafting a PR description from
-  the session's plan — the plan-tracking data already captures "what was
-  done," which maps naturally onto a commit message.
+- ~~**[M] Git-aware helpers.**~~ Covered 2026-10-04 via the
+  `git-conventions` skill (commit style, splitting commits, branching,
+  .gitignore) rather than a dedicated tool — `bash` already gives full
+  `git diff`/`log`/`commit` access, so the actual gap was knowledge, not
+  a missing capability. A plan-to-PR-description generator remains a
+  possible future add if it turns out the skill alone isn't enough.
 - **[M] Multi-agent / subagents.** Flagged as deliberately out of v0.1
   scope from the start. Worth reconsidering once context compaction
   exists — a sub-agent for a side investigation (research, test-writing)
@@ -198,11 +200,15 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
   the weaker tiers punt hard sub-problems to a stronger one.
 - ~~**[S] Usage export.**~~ **Done 2026-10-04** — `offcode usage` (CLI
   report) and `offcode usage --csv`.
-- **[M] Vision support.** gemma4 has vision-capable variants. If a loaded
-  model supports images, a `view_image`-style tool (screenshot, local
-  image file) could let the agent actually look at UI output it built
-  rather than only reasoning about code — directly relevant to the
-  output-quality problem this whole project keeps circling back to.
+- ~~**[M] Vision support.**~~ Done 2026-10-04. `view_image(path)` is
+  added to a model's tool list only when a runtime check says it's
+  actually supported — `backend.Client.SupportsVision` queries Ollama's
+  native `/api/show` `capabilities` array, so it works for any
+  vision-capable model, not a hardcoded tag (confirmed gemma4:12b/Anvil
+  already reports vision/audio/tools/thinking). Live-tested: generated a
+  test image, asked it to view_image + describe, got an accurate
+  description of the real shapes/colors back through both the TUI and
+  the web API.
 - **[S] Hooks.** User-definable pre/post tool-call hooks (shell commands
   run around specific tool invocations) — mentioned as out of scope early
   on, still plausible as a small, self-contained feature whenever there's
