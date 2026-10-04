@@ -325,6 +325,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case subagentDoneMsg:
+		tc := backend.ToolCall{ID: msg.callID, Function: backend.FunctionCall{Name: "spawn_subagent"}}
+		if msg.err != nil {
+			return m.recordToolResult(tc, "error: subagent failed: "+msg.err.Error(), true)
+		}
+		var trace string
+		if len(msg.result.Trace) > 0 {
+			trace = fmt.Sprintf(" (used: %s)", strings.Join(msg.result.Trace, ", "))
+		}
+		return m.recordToolResult(tc, fmt.Sprintf("subagent report%s:\n\n%s", trace, msg.result.Summary), false)
+
 	case clipboardCopiedMsg:
 		if msg.err != nil {
 			m.pushBlock(block{kind: blockError, text: "clipboard copy failed: " + msg.err.Error()})
@@ -824,6 +835,8 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handleViewImage(tc)
 	case "preview_page":
 		return m.handlePreviewPage(tc)
+	case "spawn_subagent":
+		return m.handleSpawnSubagent(tc)
 	}
 
 	// Loop breaker: a model that gets an error back sometimes just retries

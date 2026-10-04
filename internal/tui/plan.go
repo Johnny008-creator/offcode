@@ -1,16 +1,20 @@
 package tui
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/skills"
+	"github.com/Johnny008-creator/offcode/internal/subagent"
+	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 )
 
@@ -45,6 +49,15 @@ func metaToolDefinitions() []backend.Tool {
 				"this or any project — a user preference, a project convention, a fact worth not re-discovering. " +
 				"Don't use this for anything specific to just the current task.",
 			Parameters: metaSchema(`{"note":{"type":"string","description":"One short, self-contained sentence."}}`, "note"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name: "spawn_subagent",
+			Description: "Delegate a focused, bounded side-task (a research question, investigating why something " +
+				"is broken, drafting something that needs its own exploration) to a sub-agent that works independently " +
+				"and reports back a summary — use this to offload a chunky side-investigation instead of doing it " +
+				"all inline, or to punt a hard sub-problem to a stronger tier. The sub-agent is READ-ONLY (no write/" +
+				"edit/bash) — it investigates and reports, it cannot make changes itself.",
+			Parameters: metaSchema(`{"task":{"type":"string","description":"A clear, self-contained description of what to investigate/do — the sub-agent sees nothing else from this conversation."},"tier":{"type":"string","description":"Optional: spark, ember, forge, or anvil. Defaults to the current model if omitted."}}`, "task"),
 		}},
 		{Type: "function", Function: backend.FunctionDef{
 			Name: "load_skill",
@@ -287,6 +300,37 @@ func (m Model) handlePreviewPage(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 	}
 	b64 := base64.StdEncoding.EncodeToString(png)
 	return m.recordToolResultImage(tc, "screenshot captured: "+a.Path, []string{b64})
+}
+
+func (m Model) handleSpawnSubagent(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	var a struct {
+		Task string `json:"task"`
+		Tier string `json:"tier"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Task) == "" {
+		return m.recordToolResult(tc, "error: spawn_subagent requires a non-empty \"task\" string", true)
+	}
+
+	modelTag := m.cfg.Model
+	if a.Tier != "" {
+		if t, ok := tiers.ByShortName(a.Tier); ok {
+			modelTag = t.Tag
+		} else {
+			return m.recordToolResult(tc, fmt.Sprintf("error: unknown tier %q (expected spark, ember, forge, or anvil)", a.Tier), true)
+		}
+	}
+
+	m.activity = "subagent working: " + truncate(a.Task, 50)
+	return m, execSubagentCmd(tc, m.client, m.cfg.Backend, modelTag, m.think, a.Task)
+}
+
+func execSubagentCmd(tc backend.ToolCall, client *backend.Client, backendKind, modelTag string, think backend.ThinkLevel, task string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, err := subagent.Run(ctx, client, backendKind, modelTag, think, task)
+		return subagentDoneMsg{callID: tc.ID, result: result, err: err}
+	}
 }
 
 func (m Model) handleLoadSkill(tc backend.ToolCall) (tea.Model, tea.Cmd) {

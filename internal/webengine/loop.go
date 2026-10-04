@@ -17,6 +17,8 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/skills"
+	"github.com/Johnny008-creator/offcode/internal/subagent"
+	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 	"github.com/Johnny008-creator/offcode/internal/usagelog"
 )
@@ -237,6 +239,9 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 		return
 	case "preview_page":
 		s.handlePreviewPage(tc)
+		return
+	case "spawn_subagent":
+		s.handleSpawnSubagent(tc)
 		return
 	}
 
@@ -531,6 +536,47 @@ func (s *Session) handlePreviewPage(tc backend.ToolCall) {
 	}
 	b64 := base64.StdEncoding.EncodeToString(png)
 	s.recordToolResultImage(tc, "screenshot captured: "+a.Path, []string{b64})
+}
+
+func (s *Session) handleSpawnSubagent(tc backend.ToolCall) {
+	var a struct {
+		Task string `json:"task"`
+		Tier string `json:"tier"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Task) == "" {
+		s.recordToolResult(tc, "error: spawn_subagent requires a non-empty \"task\" string", true)
+		return
+	}
+
+	s.mu.Lock()
+	modelTag := s.cfg.Model
+	backendKind := s.cfg.Backend
+	think := s.think
+	s.activity = "subagent working: " + a.Task
+	s.notify()
+	s.mu.Unlock()
+
+	if a.Tier != "" {
+		if t, ok := tiers.ByShortName(a.Tier); ok {
+			modelTag = t.Tag
+		} else {
+			s.recordToolResult(tc, fmt.Sprintf("error: unknown tier %q (expected spark, ember, forge, or anvil)", a.Tier), true)
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	result, err := subagent.Run(ctx, s.client, backendKind, modelTag, think, a.Task)
+	if err != nil {
+		s.recordToolResult(tc, "error: subagent failed: "+err.Error(), true)
+		return
+	}
+	var trace string
+	if len(result.Trace) > 0 {
+		trace = fmt.Sprintf(" (used: %s)", strings.Join(result.Trace, ", "))
+	}
+	s.recordToolResult(tc, fmt.Sprintf("subagent report%s:\n\n%s", trace, result.Summary), false)
 }
 
 // recordToolResultImage is recordToolResult but attaches image data to

@@ -19,6 +19,14 @@ var readOnlyTools = map[string]bool{
 	"browser_text": true,
 }
 
+// IsReadOnly reports whether toolName has no side effects on the
+// system — used both by Check (plan mode) and by internal/subagent
+// (which restricts to exactly this set, since it runs with no human
+// attached to approve anything riskier).
+func IsReadOnly(toolName string) bool {
+	return readOnlyTools[toolName]
+}
+
 var deniedBashSubstrings = []string{
 	"rm -rf /",
 	"rm -rf ~",

@@ -6,6 +6,8 @@
 // told its offcode name as its identity, not "qwen" or "gemma".
 package tiers
 
+import "strings"
+
 type ModelTier struct {
 	Tag         string
 	DisplayName string
@@ -42,6 +44,20 @@ func EstimatedCost(tag string, promptTokens, completionTokens int) (cost float64
 func For(tag string) (ModelTier, bool) {
 	for _, t := range Known {
 		if t.Tag == tag {
+			return t, true
+		}
+	}
+	return ModelTier{}, false
+}
+
+// ByShortName resolves a tier's short branded name (e.g. "spark",
+// "anvil" — case-insensitive, with or without the "offcode " prefix) to
+// its ModelTier. Used where a user or the model names a tier casually
+// rather than quoting its exact backend tag.
+func ByShortName(name string) (ModelTier, bool) {
+	for _, t := range Known {
+		short := strings.TrimPrefix(strings.ToLower(t.DisplayName), "offcode ")
+		if strings.EqualFold(short, name) {
 			return t, true
 		}
 	}

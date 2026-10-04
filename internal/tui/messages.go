@@ -5,6 +5,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/mcpclient"
+	"github.com/Johnny008-creator/offcode/internal/subagent"
 )
 
 type splashDoneMsg struct {
@@ -37,4 +38,10 @@ type mcpConnectedMsg struct {
 	mgr      *mcpclient.Manager
 	tools    []backend.Tool
 	warnings []string
+}
+
+type subagentDoneMsg struct {
+	callID string
+	result subagent.Result
+	err    error
 }

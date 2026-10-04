@@ -40,6 +40,15 @@ func metaToolDefinitions() []backend.Tool {
 			Parameters: metaSchema(`{"note":{"type":"string","description":"One short, self-contained sentence."}}`, "note"),
 		}},
 		{Type: "function", Function: backend.FunctionDef{
+			Name: "spawn_subagent",
+			Description: "Delegate a focused, bounded side-task (a research question, investigating why something " +
+				"is broken, drafting something that needs its own exploration) to a sub-agent that works independently " +
+				"and reports back a summary — use this to offload a chunky side-investigation instead of doing it " +
+				"all inline, or to punt a hard sub-problem to a stronger tier. The sub-agent is READ-ONLY (no write/" +
+				"edit/bash) — it investigates and reports, it cannot make changes itself.",
+			Parameters: metaSchema(`{"task":{"type":"string","description":"A clear, self-contained description of what to investigate/do — the sub-agent sees nothing else from this conversation."},"tier":{"type":"string","description":"Optional: spark, ember, forge, or anvil. Defaults to the current model if omitted."}}`, "task"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
 			Name: "load_skill",
 			Description: "Load the full reference content of a named skill from the available-skills list " +
 				"in your system prompt, when the current task actually touches that topic.",
