@@ -347,3 +347,60 @@ correction instinct reinforced, told not to over-investigate trivial
 ask_user-worthy questions, and warned specifically about the large-
 payload path-dropping bug with instructions to rebuild (not resend) a
 failed large write.
+
+### Config/session/compaction/memory batch (2026-10-04)
+
+Four ROADMAP items shipped together since they all touch the same
+startup/persistence path: config file, session persistence, context
+compaction, persistent memory.
+
+**Config format: JSON, not TOML.** `~/.offcode/config.json` via
+`encoding/json` avoids pulling in a TOML dependency for what's a flat
+four-field struct (backend/model/mode/base-url) — not worth a new
+import for this shape of data. CLI flags still win over the file
+(`runChat` only uses a file value as the flag's *default*), so an
+explicit flag always overrides a saved default rather than the reverse.
+
+**Session keyed by SHA256(cwd), not a path-sanitized filename.**
+Avoids ever worrying about filesystem-illegal characters, path length
+limits, or case-sensitivity differences between Linux and the
+eventually-planned Windows support — a hash is trivially portable where
+a mangled path isn't. Deliberately only `Messages` round-trips through
+a restore; `Model`/`Mode` are saved for the record but never fed back
+into `config.Resolve` on load, so a resumed session can't fight with
+whatever the current invocation's flags/config file actually resolved
+to — the system prompt is always rebuilt fresh for the model actually
+in use this run, not whatever model last saved the session.
+
+**Compaction: mechanical, synchronous, not LLM-summarized.** Considered
+an LLM-based summary (call the model to compress its own older
+history) and rejected it for this pass — it would need a background
+call racing against the user's next input, with real state-machine
+work to handle "user submits while summarization is still in flight."
+The mechanical version (extract requests/tools-used/files-touched into
+a structured text block, replace everything but the system prompt and
+the last 16 messages) is synchronous, has no race to get wrong, and is
+explicitly scoped in ROADMAP.md as the cheap version — an LLM-based
+"real" summarizer is left as a distinct, larger future task rather than
+bolted on half-finished here.
+
+**Memory: one flat append-only file, not typed entries.** ROADMAP.md
+originally sketched project/feedback/user typed entries mirroring this
+assistant's own memory system. Shipped the simpler flat-file fallback
+design as the actual first version instead: smaller local tiers can't
+be trusted to reliably notice "this is memory-worthy" on their own, so
+the dependable path is the user explicitly typing `/remember <note>`,
+with the `remember` meta-tool as a bonus for tiers that do use it well.
+A single markdown list is nothing to get wrong on either path; splitting
+it into typed categories can happen later if a flat list proves
+limiting in practice.
+
+**Verifying "it works" against the filesystem, not the terminal.**
+While testing compaction with lowered thresholds, tmux's own scrollback
+truncation plus a test-harness timing bug (sending the next message
+while the model was still mid-generation — input is correctly disabled
+then, so those keystrokes were silently dropped) together looked like
+an app bug ("messages disappearing"). Re-verified by reading
+`~/.offcode/sessions/*.json` directly instead of trusting tmux's capture
+— the compaction logic was correct from the first implementation; the
+false alarm was entirely in the test methodology, not the app.

@@ -21,46 +21,30 @@ of a blank page next session. Rough effort tags: **S** (a session or less),
 
 ## Context, memory & learning
 
-- **[M] Context compaction.** Called out as deferred since the very first
-  DECISIONS.md entry and still not built. Matters more for local models
-  than Claude (8-32K effective context vs 200K) — needs a real plan:
-  summarize-oldest-N-turns is the cheap version, Aider's tree-sitter +
-  PageRank repo map (also flagged early, also still undone) is the
-  higher-effort/higher-payoff version for keeping large codebases
-  navigable in a small context window.
-- **[S] Session persistence.** Save/resume a conversation (messages,
-  plan state, model) across restarts — right now closing offcode loses
-  everything. Natural pairing with compaction since a resumed long
-  session needs it anyway.
-- **[M] Config file.** `~/.offcode/config.toml` (or similar) for defaults
-  (model, mode, backend) instead of CLI flags every time — flagged as
-  deferred in the original v0.1 scope.
-- **[M] Persistent memory across sessions.** Right now every offcode
-  session starts from zero — no memory of the user's preferences, past
-  corrections, or project-specific conventions, even for the exact same
-  project the day before. Worth building something modeled directly on
-  the memory system this very assistant uses day to day, since it's a
-  proven design: a handful of typed entries —
-  - **project**: facts about a specific codebase that aren't derivable by
-    reading the code (why a weird workaround exists, what's mid-refactor)
-  - **feedback**: corrections or confirmed approaches ("don't use X here,
-    user said Y broke last time" / "user confirmed Z approach works") —
-    the single highest-value type, since it directly prevents repeating a
-    mistake the user already corrected once
-  - **user**: standing preferences (verbosity, tone, how they like changes
-    staged/committed)
-
-  Mechanically: a small `~/.offcode/memory/` directory (global) plus
-  maybe a per-project file, loaded into the system prompt (or a
-  `recall_memory` tool a model calls on demand — same always-on-vs-on-
-  demand tradeoff as the CSS/design skill idea above) at session start.
-  The harder design question isn't storage, it's **when an entry gets
-  written** — this assistant relies on a person (Claude) noticing "the
-  user just corrected me" or "the user just confirmed something
-  non-obvious" and deciding to save it; a local model, especially the
-  smaller tiers, may need a more mechanical trigger (an explicit
-  `/remember <note>` command the user invokes themselves is the safe
-  fallback if automatic noticing proves unreliable for weaker tiers).
+- ~~**[M] Context compaction.**~~ Done 2026-10-04. Shipped the cheap
+  mechanical version (`internal/tui/compaction.go`): summarize-oldest-
+  messages once history passes 40 messages, keeping the last 16 in full.
+  The tree-sitter/PageRank repo-map idea is still undone and would be a
+  separate, much larger follow-up if context pressure keeps being an
+  issue beyond what compaction alone fixes.
+- ~~**[S] Session persistence.**~~ Done 2026-10-04. `internal/session`
+  saves conversation messages per working directory (keyed by SHA256 of
+  cwd) to `~/.offcode/sessions/`, restored on next launch unless `-fresh`
+  is passed. Model/mode are deliberately NOT restored from the saved
+  session — only messages — so they don't fight with config-file/CLI-flag
+  resolution.
+- ~~**[M] Config file.**~~ Done 2026-10-04. `~/.offcode/config.json` (JSON,
+  not TOML — avoids an extra dependency) via `internal/config/file.go`;
+  `offcode config show|set` manages it, and `runChat` merges it under
+  CLI flags.
+- ~~**[M] Persistent memory across sessions.**~~ Done 2026-10-04. Shipped
+  the simpler flat-file design flagged as the fallback, as the primary
+  path rather than the fallback: `~/.offcode/memory.md`
+  (`internal/memory`), appended via both `/remember <note>` and a
+  `remember(note)` meta-tool, loaded into every system prompt. Skipped
+  the typed project/feedback/user entry system for now — a single
+  append-only note list was judged good enough until it proves limiting
+  in practice.
 - **[L] Actual learning, not just memory-as-context.** A level beyond the
   above: periodically fine-tuning a small LoRA adapter per tier from
   accumulated corrections/successful sessions, so the model's own weights
