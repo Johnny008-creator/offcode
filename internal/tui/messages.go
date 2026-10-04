@@ -10,6 +10,7 @@ type splashDoneMsg struct {
 type toolExecutedMsg struct {
 	callID string
 	name   string
+	args   string
 	path   string
 	output string
 	err    error

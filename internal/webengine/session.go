@@ -16,6 +16,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/hooks"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/session"
 )
@@ -110,6 +111,7 @@ type Session struct {
 	resumedCount  int
 	sessionID     string
 	visionCapable bool
+	hooksCfg      hooks.Config
 
 	subs   map[int]chan struct{}
 	nextID int
@@ -117,6 +119,10 @@ type Session struct {
 
 func NewSession(cfg config.Config) *Session {
 	cwd, _ := os.Getwd()
+	hooksCfg, err := hooks.Load(cwd)
+	if err != nil {
+		hooksCfg = hooks.Config{}
+	}
 
 	s := &Session{
 		cfg:       cfg,
@@ -125,6 +131,7 @@ func NewSession(cfg config.Config) *Session {
 		status:    "idle",
 		readPaths: map[string]bool{},
 		subs:      map[int]chan struct{}{},
+		hooksCfg:  hooksCfg,
 	}
 
 	if cfg.Resume {

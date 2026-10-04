@@ -11,6 +11,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/agent"
 	"github.com/Johnny008-creator/offcode/internal/backend"
+	"github.com/Johnny008-creator/offcode/internal/hooks"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/skills"
@@ -243,7 +244,13 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 		return
 	}
 	mode := s.cfg.Mode
+	hooksCfg := s.hooksCfg
 	s.mu.Unlock()
+
+	if hookRes := hooks.RunPre(hooksCfg, tc.Function.Name, tc.Function.Arguments); hookRes.Denied {
+		s.recordToolResult(tc, "DENIED by pre_tool_use hook: "+hookRes.Reason, true)
+		return
+	}
 
 	decision := permission.Check(mode, tc.Function.Name, tc.Function.Arguments)
 
@@ -295,6 +302,9 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 			s.readPaths[path] = true
 			s.mu.Unlock()
 		}
+	}
+	for _, warning := range hooks.RunPost(hooksCfg, tc.Function.Name, tc.Function.Arguments, out) {
+		s.pushBlock(Block{Kind: BlockSystem, Text: warning})
 	}
 	s.recordToolResult(tc, out, false)
 }

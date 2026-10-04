@@ -19,6 +19,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/agent"
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/hooks"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/session"
@@ -108,7 +109,8 @@ type Model struct {
 	resumedCount   int
 	pickerSessions []session.Meta
 
-	webAddr string
+	webAddr  string
+	hooksCfg hooks.Config
 
 	quitting bool
 }
@@ -124,6 +126,10 @@ func New(cfg config.Config) Model {
 	sp.Spinner = spinner.Dot
 
 	cwd, _ := os.Getwd()
+	hooksCfg, err := hooks.Load(cwd)
+	if err != nil {
+		hooksCfg = hooks.Config{}
+	}
 
 	messages := []backend.Message{{Role: "system", Content: buildSystemPrompt(cfg.Model)}}
 
@@ -140,6 +146,7 @@ func New(cfg config.Config) Model {
 		readPaths:    map[string]bool{},
 		cwd:          cwd,
 		sessionID:    session.NewID(),
+		hooksCfg:     hooksCfg,
 	}
 }
 
@@ -792,6 +799,10 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 			tc.Function.Name, m.repeatFailCount), true)
 	}
 
+	if hookRes := hooks.RunPre(m.hooksCfg, tc.Function.Name, tc.Function.Arguments); hookRes.Denied {
+		return m.recordToolResult(tc, "DENIED by pre_tool_use hook: "+hookRes.Reason, true)
+	}
+
 	decision := permission.Check(m.cfg.Mode, tc.Function.Name, tc.Function.Arguments)
 
 	if tc.Function.Name == "write" && !decision.Denied {
@@ -831,7 +842,7 @@ func extractPath(argsJSON string) string {
 func execToolCmd(tc backend.ToolCall) tea.Cmd {
 	return func() tea.Msg {
 		out, err := tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
-		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, path: extractPath(tc.Function.Arguments), output: out, err: err}
+		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, args: tc.Function.Arguments, path: extractPath(tc.Function.Arguments), output: out, err: err}
 	}
 }
 
@@ -847,6 +858,9 @@ func (m Model) handleToolExecuted(ev toolExecutedMsg) (tea.Model, tea.Cmd) {
 	}
 	if (ev.name == "read" || ev.name == "write") && ev.path != "" {
 		m.readPaths[ev.path] = true
+	}
+	for _, warning := range hooks.RunPost(m.hooksCfg, ev.name, ev.args, ev.output) {
+		m.pushBlock(block{kind: blockSystem, text: warning})
 	}
 	return m.recordToolResult(tc, ev.output, false)
 }
