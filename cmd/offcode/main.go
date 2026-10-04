@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
@@ -14,6 +16,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/monitor"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tui"
+	"github.com/Johnny008-creator/offcode/internal/usagelog"
 )
 
 func main() {
@@ -30,6 +33,9 @@ func main() {
 			return
 		case "version", "-v", "--version":
 			runVersion()
+			return
+		case "usage":
+			runUsage(os.Args[2:])
 			return
 		}
 	}
@@ -66,6 +72,37 @@ func runMonitor(args []string) {
 		fmt.Fprintln(os.Stderr, "offcode monitor:", err)
 		os.Exit(1)
 	}
+}
+
+func runUsage(args []string) {
+	fs := flag.NewFlagSet("offcode usage", flag.ExitOnError)
+	csvFlag := fs.Bool("csv", false, "export raw records as CSV instead of the summary report")
+	fs.Parse(args)
+
+	records, err := usagelog.ReadAll()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "offcode usage:", err)
+		os.Exit(1)
+	}
+
+	if *csvFlag {
+		w := csv.NewWriter(os.Stdout)
+		w.Write([]string{"time", "model", "prompt_tokens", "completion_tokens", "duration_ms"})
+		for _, r := range records {
+			w.Write([]string{
+				r.Time.Format(time.RFC3339),
+				r.Model,
+				strconv.Itoa(r.PromptTokens),
+				strconv.Itoa(r.CompletionTokens),
+				strconv.FormatInt(r.DurationMs, 10),
+			})
+		}
+		w.Flush()
+		return
+	}
+
+	summaries := usagelog.Summarize(records, time.Time{})
+	fmt.Println(usagelog.RenderReport(summaries, "Usage (all-time)"))
 }
 
 func runVersion() {
