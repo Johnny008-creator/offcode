@@ -19,6 +19,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
 	"github.com/Johnny008-creator/offcode/internal/permission"
+	"github.com/Johnny008-creator/offcode/internal/session"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 )
 
@@ -98,6 +99,9 @@ type Model struct {
 	streamEvents <-chan backend.StreamEvent
 	cancelGen    context.CancelFunc
 
+	cwd          string
+	resumedCount int
+
 	quitting bool
 }
 
@@ -111,10 +115,21 @@ func New(cfg config.Config) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
+	cwd, _ := os.Getwd()
+
+	messages := []backend.Message{{Role: "system", Content: buildSystemPrompt(cfg.Model)}}
+	resumedCount := 0
+	if cfg.Fresh {
+		_ = session.Clear(cwd)
+	} else if saved, ok, err := session.Load(cwd); err == nil && ok && len(saved.Messages) > 0 {
+		messages = append(messages, saved.Messages...)
+		resumedCount = len(saved.Messages)
+	}
+
 	return Model{
 		cfg:          cfg,
 		client:       backend.NewClient(cfg.BaseURL),
-		messages:     []backend.Message{{Role: "system", Content: buildSystemPrompt(cfg.Model)}},
+		messages:     messages,
 		phase:        phaseSplash,
 		state:        stateIdle,
 		input:        ti,
@@ -122,7 +137,24 @@ func New(cfg config.Config) Model {
 		sessionStart: time.Now(),
 		showThinking: true,
 		readPaths:    map[string]bool{},
+		cwd:          cwd,
+		resumedCount: resumedCount,
 	}
+}
+
+// saveSession persists the conversation so far (everything but the system
+// prompt, which gets rebuilt fresh on load) for this working directory.
+// Best-effort: a failed save is silently ignored, same stance as usagelog
+// and the write-safety checks elsewhere — persistence is a convenience,
+// never something that should interrupt the chat loop.
+func (m Model) saveSession() {
+	if m.cwd == "" || len(m.messages) <= 1 {
+		return
+	}
+	_ = session.Save(m.cwd, session.Saved{
+		Model:    m.cfg.Model,
+		Messages: append([]backend.Message(nil), m.messages[1:]...),
+	})
 }
 
 func Run(cfg config.Config) error {
@@ -194,6 +226,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.contextLimit = msg.contextLimit
 		m.phase = phaseChat
 		m.pushBlock(block{kind: blockBanner, text: renderBanner(m.cfg)})
+		if m.resumedCount > 0 {
+			m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("resumed session for %s (%d earlier messages)", m.cwd, m.resumedCount)})
+			for _, msg := range m.messages[len(m.messages)-m.resumedCount:] {
+				switch {
+				case msg.Role == "user":
+					m.pushBlock(block{kind: blockUser, text: msg.Content})
+				case msg.Role == "assistant" && msg.Content != "":
+					m.pushBlock(block{kind: blockAssistant, text: msg.Content})
+				}
+			}
+		}
 		if m.cfg.Model == "" {
 			// No -model flag given: pick one interactively instead of
 			// requiring the user to already know a tag on the command
@@ -526,6 +569,7 @@ func (m Model) handleStreamEvent(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		if !m.promptStart.IsZero() {
 			m.lastTurnDuration = time.Since(m.promptStart)
 		}
+		m.saveSession()
 		if errors.Is(ev.Err, context.Canceled) {
 			m.pushBlock(block{kind: blockSystem, text: "( interrupted )"})
 		} else {
@@ -611,6 +655,7 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		if !m.promptStart.IsZero() {
 			m.lastTurnDuration = time.Since(m.promptStart)
 		}
+		m.saveSession()
 		return m, nil
 	}
 
@@ -622,6 +667,7 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		if !m.promptStart.IsZero() {
 			m.lastTurnDuration = time.Since(m.promptStart)
 		}
+		m.saveSession()
 		return m, nil
 	}
 

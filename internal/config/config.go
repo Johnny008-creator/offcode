@@ -11,6 +11,10 @@ type Config struct {
 	BaseURL string
 	Model   string
 	Mode    permission.Mode
+
+	// Fresh skips resuming a saved session for the current working
+	// directory, even if one exists.
+	Fresh bool
 }
 
 var presetBaseURLs = map[string]string{
