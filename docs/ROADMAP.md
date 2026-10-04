@@ -5,6 +5,39 @@ after the 4-tier model campaign, so the team has a starting point instead
 of a blank page next session. Rough effort tags: **S** (a session or less),
 **M** (multi-session feature), **L** (a project in its own right).
 
+## User-requested follow-ups (not started — do next session)
+
+- **[M] Session persistence: `--resume` flag, multiple sessions per dir.**
+  Feedback from 2026-10-04 right after shipping item 5 (session
+  persistence): auto-resuming on every plain `offcode` launch is the
+  wrong default. Wanted behavior:
+  - No saved session loads unless the user explicitly passes
+    `--resume` (bare `offcode` always starts clean, even if a save file
+    exists for this directory) — `-fresh` becomes redundant/removable
+    once this is the default, or kept as an explicit alias.
+  - **Multiple sessions per directory**, not the current one-file-per-
+    cwd-hash model (`internal/session`'s `pathFor` collapses a whole
+    directory to one file). Needs real design: named/numbered sessions
+    (`offcode --resume` with no name could list them, like `tmux ls`),
+    a way to start a new named one, a way to pick which to resume.
+    Touches `internal/session` (storage keying), `internal/tui`'s
+    startup flow (`New()`, the `-fresh` flag), `internal/webengine`
+    (same cwd-keyed assumption, see item below), and `cmd/offcode`'s
+    flag parsing.
+- **[M] Web interface: visual/UX pass, more like Grok/ChatGPT.** Direct
+  feedback 2026-10-04: "not bad" but needs to be more polished/clean —
+  explicitly compared to Grok/ChatGPT's web UI as the bar. The shipped
+  v1 (`internal/webserver/static/*`) is functional (streaming, confirm
+  modal, ask_user modal, plan sidebar) but visually basic. Worth a real
+  design pass: message bubble styling, markdown rendering for assistant
+  replies (currently raw text — no code block syntax highlighting, no
+  bold/headers rendering), a proper session sidebar/switcher (ties
+  directly to the multi-session work above — a session list is exactly
+  what a ChatGPT/Grok-style left sidebar shows), better empty/loading
+  states, possibly a lighter/cleaner color treatment. Should land after
+  the multi-session backend work above, since a sidebar needs something
+  to list.
+
 ## Testing & validation
 
 - **[S] Re-run the 10-task set across all 4 tiers.** Only Forge got deep
