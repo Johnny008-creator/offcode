@@ -404,3 +404,51 @@ an app bug ("messages disappearing"). Re-verified by reading
 `~/.offcode/sessions/*.json` directly instead of trusting tmux's capture
 — the compaction logic was correct from the first implementation; the
 false alarm was entirely in the test methodology, not the app.
+
+### Web interface (2026-10-04)
+
+**A parallel engine, not a refactor of the TUI.** `internal/tui`'s loop
+is written in Bubble Tea's continuation-passing style — every step
+(stream event, tool result, confirm answer) returns control to an event
+loop via a `tea.Msg`/`tea.Cmd` pair. That shape doesn't translate to an
+HTTP server: there's no outer event loop to hand control back to between
+an HTTP request and the next one. Rather than bend the TUI's model to
+serve both, or risk regressing a working TUI to extract a shared core,
+`internal/webengine` is a clean second implementation: one dedicated
+goroutine per session (`runTurn`) runs the whole agent loop as ordinary
+**blocking, sequential** Go code — a tool confirmation or ask_user pause
+is just `allow := <-s.confirmCh`, no state machine required, which is
+actually simpler than the TUI's CPS version despite being a second copy
+of the logic. The duplication this creates (prompts.go, metatools.go,
+research.go each have a near-identical twin in internal/tui) is an
+accepted, deliberate cost — a shared package would mean touching the
+TUI's imports, and zero regression risk to the proven TUI was the
+explicit priority for this item.
+
+**State sync: full snapshot broadcast, not a diff/patch protocol.**
+Every SSE push sends the *entire* current `State` (all transcript blocks,
+plan, confirm/ask pending state) as one JSON blob, on every change —
+including once per streamed token during generation. Bandwidth-wasteful
+in the abstract, irrelevant in practice on localhost. In exchange, there
+is no client/server drift to debug: the browser always renders exactly
+what the server thinks is true, never a diff that could desync after a
+dropped event or a reconnect. `EventSource`'s built-in auto-reconnect
+plus a fresh full snapshot on every new connection means a page refresh
+or a flaky connection just re-syncs for free.
+
+**One server = one session, keyed like the TUI.** Rather than a
+multi-tenant session manager with IDs, `offcode web` holds exactly one
+`*webengine.Session`, created from the same `internal/session`
+cwd-keyed store the TUI already uses. Multiple browser tabs against one
+running server see and drive the same conversation — intentional,
+matching "multiple terminals attached to one tmux pane" rather than
+pretending the web UI is a separate, independent client. Running the
+TUI and `offcode web` in the same directory at the same time will race
+on the same session.json; acceptable for a personal local tool, not
+engineered around.
+
+**No new JS dependencies, no build step.** The frontend is hand-written
+vanilla HTML/CSS/JS served via `go:embed` — no npm, no bundler, nothing
+to install to run `offcode web` beyond the Go binary itself. Consistent
+with the project's single-static-binary goal; pulling in a frontend
+build pipeline for one page would work against that.

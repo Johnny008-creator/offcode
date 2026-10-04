@@ -17,6 +17,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tui"
 	"github.com/Johnny008-creator/offcode/internal/usagelog"
+	"github.com/Johnny008-creator/offcode/internal/webserver"
 )
 
 func main() {
@@ -39,6 +40,9 @@ func main() {
 			return
 		case "config":
 			runConfig(os.Args[2:])
+			return
+		case "web":
+			runWeb(os.Args[2:])
 			return
 		}
 	}
@@ -86,6 +90,49 @@ func runChat(args []string) {
 
 	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "offcode:", err)
+		os.Exit(1)
+	}
+}
+
+func runWeb(args []string) {
+	saved, err := config.LoadFile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "offcode: warning: couldn't read ~/.offcode/config.json:", err)
+	}
+	def := chatDefaults
+	if saved.Backend != "" {
+		def.Backend = saved.Backend
+	}
+	if saved.Model != "" {
+		def.Model = saved.Model
+	}
+	if saved.Mode != "" {
+		def.Mode = saved.Mode
+	}
+	if saved.BaseURL != "" {
+		def.BaseURL = saved.BaseURL
+	}
+
+	fs := flag.NewFlagSet("offcode web", flag.ExitOnError)
+	portFlag := fs.Int("port", 7878, "port to listen on (binds to 127.0.0.1 only)")
+	backendFlag := fs.String("backend", def.Backend, "backend to use: ollama or lmstudio")
+	baseURLFlag := fs.String("base-url", def.BaseURL, "override the backend's OpenAI-compatible base URL")
+	modelFlag := fs.String("model", def.Model, "model name as known to the backend; omit to pick from the browser")
+	modeFlag := fs.String("mode", def.Mode, "permission mode: plan, default, or auto")
+	freshFlag := fs.Bool("fresh", false, "ignore any saved session for this directory and start clean")
+	fs.Parse(args)
+
+	cfg, err := config.Resolve(*backendFlag, *baseURLFlag, *modelFlag, *modeFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "offcode web:", err)
+		fs.Usage()
+		os.Exit(1)
+	}
+	cfg.Fresh = *freshFlag
+
+	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
+	if err := webserver.Serve(addr, cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "offcode web:", err)
 		os.Exit(1)
 	}
 }

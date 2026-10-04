@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>offcode</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo">oc</span>
+      <span class="title">offcode</span>
+    </div>
+    <div class="status-group">
+      <span id="model-badge" class="badge">no model</span>
+      <select id="mode-select" class="mode-select">
+        <option value="plan">plan</option>
+        <option value="default">default</option>
+        <option value="auto">auto</option>
+      </select>
+      <span id="activity" class="activity"></span>
+      <button id="stop-btn" class="btn btn-ghost" hidden>stop</button>
+      <button id="usage-btn" class="btn btn-ghost" title="usage report">usage</button>
+      <button id="research-btn" class="btn btn-ghost" title="deep research">research</button>
+    </div>
+  </header>
+
+  <main id="layout">
+    <section id="transcript-wrap">
+      <div id="transcript"></div>
+      <form id="composer">
+        <textarea id="input" placeholder="type your request..." rows="1"></textarea>
+        <button id="send-btn" type="submit" class="btn btn-primary">send</button>
+      </form>
+    </section>
+
+    <aside id="sidebar">
+      <h3>Plan</h3>
+      <div id="plan-list" class="plan-list empty">no plan yet</div>
+    </aside>
+  </main>
+</div>
+
+<div id="model-picker-overlay" class="overlay" hidden>
+  <div class="modal">
+    <h2>Select a model</h2>
+    <div id="model-list" class="model-list"></div>
+  </div>
+</div>
+
+<div id="confirm-overlay" class="overlay" hidden>
+  <div class="modal">
+    <h2>Confirm tool call</h2>
+    <div class="confirm-tool-name" id="confirm-tool-name"></div>
+    <pre class="confirm-args" id="confirm-args"></pre>
+    <div class="modal-actions">
+      <button id="confirm-deny" class="btn btn-ghost">deny (n)</button>
+      <button id="confirm-allow" class="btn btn-primary">allow (y)</button>
+    </div>
+  </div>
+</div>
+
+<div id="ask-overlay" class="overlay" hidden>
+  <div class="modal">
+    <h2 id="ask-question"></h2>
+    <div id="ask-options" class="ask-options"></div>
+  </div>
+</div>
+
+<div id="research-overlay" class="overlay" hidden>
+  <div class="modal">
+    <h2>Deep research</h2>
+    <textarea id="research-question" placeholder="What do you want researched?" rows="3"></textarea>
+    <div class="depth-row">
+      <label><input type="radio" name="depth" value="lite"> lite</label>
+      <label><input type="radio" name="depth" value="normal" checked> normal</label>
+      <label><input type="radio" name="depth" value="deep"> deep</label>
+    </div>
+    <div class="modal-actions">
+      <button id="research-cancel" class="btn btn-ghost">cancel</button>
+      <button id="research-start" class="btn btn-primary">start</button>
+    </div>
+  </div>
+</div>
+
+<div id="usage-overlay" class="overlay" hidden>
+  <div class="modal modal-wide">
+    <h2>Usage</h2>
+    <pre id="usage-report"></pre>
+    <div class="modal-actions">
+      <button id="usage-close" class="btn btn-primary">close</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

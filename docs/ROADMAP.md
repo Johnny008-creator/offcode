@@ -66,36 +66,32 @@ of a blank page next session. Rough effort tags: **S** (a session or less),
   read-through and a design decision on how MCP tools surface alongside
   the built-ins (naming collisions, per-tier tool-list filtering like
   Spark's ask_user removal).
-- **[L] Web interface (`/web` or similar).** A browser UI alongside the
-  TUI, reusing the same agent/backend logic behind a small local HTTP
-  server. Opens the door to viewing from another device on the LAN,
-  richer rendering (inline images, syntax-highlighted diffs) than a
-  terminal allows, and is a natural home for things that don't fit a TUI
-  well (a real usage dashboard with actual charts instead of ASCII bars).
-  Biggest open question: how much of internal/tui's logic is reusable vs.
-  needs a parallel implementation — worth a design pass before coding.
-- **[M] Deep research mode, with a depth selector.** Current
-  `web_search`/`fetch_url` are single-shot. A proper research mode loops —
-  search, read several results, decide what's still missing, search
-  again, synthesize a written answer with sources — closer to what "deep
-  research" means in other products. Could be its own meta-tool
-  (`research(question, depth)`) that internally drives several
-  web_search/fetch_url rounds before returning a synthesized result,
-  keeping the main agent loop simple. User specifically wants three depth
-  levels — rough shape:
-  - **lite**: one search, read the top result or two, short summary (close
-    to what `web_search` + a single `fetch_url` already does today).
-  - **normal**: several searches from different angles, read the best
-    handful of pages, a proper synthesized write-up with sources.
-  - **deep**: iterative — synthesize interim findings, notice gaps,
-    search again to fill them, repeat for a bounded number of rounds,
-    then a long-form final report.
-  Should be able to **save the result as a document** — plain `.md` is
-  free (just `write`), `.pdf` needs a real generation step (a Go PDF
-  library, or render Markdown→HTML→PDF via a headless renderer), `.docx`
-  is a zip of XML so tractable without a huge dependency but still real
-  work. Scope `.md` first, treat `.pdf`/`.docx` as a follow-up once the
-  research loop itself is solid.
+- ~~**[L] Web interface (`offcode web`).**~~ Done 2026-10-04. Answer to
+  the "how much of internal/tui is reusable" question: none of it
+  directly — the TUI's loop is Bubble Tea continuation-passing style,
+  which doesn't map onto HTTP/SSE. Shipped as a genuine parallel engine
+  instead (`internal/webengine`, a sequential per-session goroutine where
+  tool-confirm/ask_user pauses are just a blocking channel receive — no
+  state machine needed) behind an HTTP+SSE server (`internal/webserver`,
+  static assets embedded via `go:embed`) and a no-build-step vanilla
+  HTML/CSS/JS frontend. One server instance = one session, keyed to the
+  cwd it's launched from and persisted via the same `internal/session`
+  store as the TUI, so `offcode` and `offcode web` resume the same
+  per-directory conversation. Supports streaming chat, the plan sidebar,
+  a real confirm-tool-call modal, an ask_user modal, model/mode pickers,
+  `/research` as a modal + endpoint, `/remember`, and a usage report —
+  live-tested end to end (message → streaming reasoning → tool_call →
+  confirm pause → approve → file written → idle) against qwen3:8b over
+  real HTTP. Inline images/diff rendering and a charted usage dashboard
+  are left as later polish, not blocking for a first working version.
+- ~~**[M] Deep research mode, with a depth selector.**~~ Done 2026-10-04.
+  Shipped as `/research <question> [--depth=lite|normal|deep]`
+  (`internal/tui/research.go`) rather than a separate meta-tool/sub-agent —
+  it crafts one depth-scoped instruction and submits it through the
+  existing agent loop, so web_search/fetch_url/plan_set/write and the
+  normal confirm flow all apply unmodified. Always saves a `.md` report
+  to the cwd; live-tested end to end (lite depth) against qwen3:8b.
+  `.pdf`/`.docx` export remain a follow-up, as originally scoped.
 - **[M] Skills: CSS/HTML/design quality.** The system prompt already
   pushes "good modern styling," but a loadable skill (reference palettes,
   layout patterns, a checklist) could push quality further than prompt
