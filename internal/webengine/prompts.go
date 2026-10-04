@@ -15,6 +15,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/memory"
+	"github.com/Johnny008-creator/offcode/internal/skills"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 )
@@ -175,7 +176,20 @@ func buildSystemPrompt(modelTag string) string {
 
 	name := identityName(modelTag)
 	base := fmt.Sprintf(basePromptTemplate, name, name, askUserPolicy(modelTag), runtime.GOOS, shell, home, cwd)
-	return base + tierAddendum(modelTag) + memorySection()
+	return base + tierAddendum(modelTag) + memorySection() + skillsCatalogSection()
+}
+
+func skillsCatalogSection() string {
+	cat := skills.Catalog()
+	if len(cat) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nAvailable skills — call load_skill(name) to pull a skill's full reference content into context when a task actually touches that topic (e.g. writing CSS, designing an API, a tricky regex). Don't load one for a task that doesn't need it:\n")
+	for _, e := range cat {
+		fmt.Fprintf(&b, "- %s: %s\n", e.Name, e.Description)
+	}
+	return b.String()
 }
 
 func memorySection() string {

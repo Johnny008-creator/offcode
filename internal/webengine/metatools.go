@@ -39,6 +39,12 @@ func metaToolDefinitions() []backend.Tool {
 				"Don't use this for anything specific to just the current task.",
 			Parameters: metaSchema(`{"note":{"type":"string","description":"One short, self-contained sentence."}}`, "note"),
 		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name: "load_skill",
+			Description: "Load the full reference content of a named skill from the available-skills list " +
+				"in your system prompt, when the current task actually touches that topic.",
+			Parameters: metaSchema(`{"name":{"type":"string","description":"Exact skill name from the available-skills list."}}`, "name"),
+		}},
 	}
 }
 

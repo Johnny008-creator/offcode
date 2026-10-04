@@ -13,6 +13,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
+	"github.com/Johnny008-creator/offcode/internal/skills"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 	"github.com/Johnny008-creator/offcode/internal/usagelog"
 )
@@ -222,6 +223,9 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 		return
 	case "remember":
 		s.handleRemember(tc)
+		return
+	case "load_skill":
+		s.handleLoadSkill(tc)
 		return
 	}
 
@@ -440,6 +444,27 @@ func (s *Session) handleRemember(tc backend.ToolCall) {
 	}
 	s.pushBlock(Block{Kind: BlockSystem, Text: "remembered: " + a.Note})
 	s.recordToolResult(tc, "saved to persistent memory — it will be loaded into the system prompt in future sessions.", false)
+}
+
+func (s *Session) handleLoadSkill(tc backend.ToolCall) {
+	var a struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Name) == "" {
+		s.recordToolResult(tc, "error: load_skill requires a non-empty \"name\" string", true)
+		return
+	}
+	content, ok := skills.Load(a.Name)
+	if !ok {
+		cat := skills.Catalog()
+		names := make([]string, len(cat))
+		for i, e := range cat {
+			names[i] = e.Name
+		}
+		s.recordToolResult(tc, fmt.Sprintf("error: no skill named %q. Available: %s", a.Name, strings.Join(names, ", ")), true)
+		return
+	}
+	s.recordToolResult(tc, content, false)
 }
 
 func (s *Session) recordToolResult(tc backend.ToolCall, content string, isError bool) {

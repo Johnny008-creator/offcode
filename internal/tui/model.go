@@ -770,6 +770,8 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handleAskUser(tc)
 	case "remember":
 		return m.handleRemember(tc)
+	case "load_skill":
+		return m.handleLoadSkill(tc)
 	}
 
 	// Loop breaker: a model that gets an error back sometimes just retries

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/memory"
+	"github.com/Johnny008-creator/offcode/internal/skills"
 )
 
 func metaSchema(props string, required ...string) json.RawMessage {
@@ -42,6 +43,12 @@ func metaToolDefinitions() []backend.Tool {
 				"this or any project — a user preference, a project convention, a fact worth not re-discovering. " +
 				"Don't use this for anything specific to just the current task.",
 			Parameters: metaSchema(`{"note":{"type":"string","description":"One short, self-contained sentence."}}`, "note"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name: "load_skill",
+			Description: "Load the full reference content of a named skill from the available-skills list " +
+				"in your system prompt, when the current task actually touches that topic.",
+			Parameters: metaSchema(`{"name":{"type":"string","description":"Exact skill name from the available-skills list."}}`, "name"),
 		}},
 	}
 }
@@ -223,6 +230,24 @@ func (m Model) handleRemember(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 	}
 	m.pushBlock(block{kind: blockSystem, text: "remembered: " + a.Note})
 	return m.recordToolResult(tc, "saved to persistent memory — it will be loaded into the system prompt in future sessions.", false)
+}
+
+func (m Model) handleLoadSkill(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	var a struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Name) == "" {
+		return m.recordToolResult(tc, "error: load_skill requires a non-empty \"name\" string", true)
+	}
+	content, ok := skills.Load(a.Name)
+	if !ok {
+		names := make([]string, len(skills.Catalog()))
+		for i, e := range skills.Catalog() {
+			names[i] = e.Name
+		}
+		return m.recordToolResult(tc, fmt.Sprintf("error: no skill named %q. Available: %s", a.Name, strings.Join(names, ", ")), true)
+	}
+	return m.recordToolResult(tc, content, false)
 }
 
 func (m Model) cancelAskUser() (tea.Model, tea.Cmd) {
