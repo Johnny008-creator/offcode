@@ -134,6 +134,7 @@ func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error
 	model := s.cfg.Model
 	backendKind := s.cfg.Backend
 	think := s.think
+	vision := s.visionCapable
 	msgs := append([]backend.Message(nil), s.messages...)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelFn = cancel
@@ -141,7 +142,7 @@ func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error
 	s.mu.Unlock()
 	defer cancel()
 
-	req := backend.ChatRequest{Model: model, Messages: msgs, Tools: toolsForModel(model)}
+	req := backend.ChatRequest{Model: model, Messages: msgs, Tools: toolsForModel(model, vision)}
 
 	var ch <-chan backend.StreamEvent
 	if backendKind == "ollama" {
@@ -226,6 +227,9 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 		return
 	case "load_skill":
 		s.handleLoadSkill(tc)
+		return
+	case "view_image":
+		s.handleViewImage(tc)
 		return
 	}
 
@@ -465,6 +469,40 @@ func (s *Session) handleLoadSkill(tc backend.ToolCall) {
 		return
 	}
 	s.recordToolResult(tc, content, false)
+}
+
+func (s *Session) handleViewImage(tc backend.ToolCall) {
+	var a struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Path) == "" {
+		s.recordToolResult(tc, "error: view_image requires a non-empty \"path\" string", true)
+		return
+	}
+	b64, err := tools.ReadImageBase64(a.Path)
+	if err != nil {
+		s.recordToolResult(tc, "error: "+err.Error(), true)
+		return
+	}
+	s.recordToolResultImage(tc, "image attached: "+a.Path, []string{b64})
+}
+
+// recordToolResultImage is recordToolResult but attaches image data to
+// the tool-result message (view_image) instead of plain text.
+func (s *Session) recordToolResultImage(tc backend.ToolCall, content string, images []string) {
+	s.mu.Lock()
+	s.lastFailedCall = ""
+	s.repeatFailCount = 0
+	s.messages = append(s.messages, backend.Message{
+		Role:       "tool",
+		ToolCallID: tc.ID,
+		Name:       tc.Function.Name,
+		Content:    content,
+		Images:     images,
+	})
+	s.blocks = append(s.blocks, Block{Kind: BlockToolResult, ToolName: tc.Function.Name, Text: content})
+	s.notify()
+	s.mu.Unlock()
 }
 
 func (s *Session) recordToolResult(tc backend.ToolCall, content string, isError bool) {

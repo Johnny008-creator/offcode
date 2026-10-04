@@ -8,6 +8,14 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+
+	// Images are base64-encoded (no data: URI prefix) image attachments,
+	// only honored on the native Ollama path (StreamChatNative) — see
+	// toNativeMessages. The OpenAI-compatible path would need a
+	// structured content array instead of a plain string to support
+	// this, which isn't implemented since that backend is unverified
+	// for anything in this project so far.
+	Images []string `json:"-"`
 }
 
 type ToolCall struct {

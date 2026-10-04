@@ -106,6 +106,45 @@ func (c *Client) ContextLength(ctx context.Context, model string) int {
 	return 0
 }
 
+// ModelCapabilities returns Ollama's declared capability tags for a model
+// (e.g. "completion", "vision", "tools", "thinking") via its native
+// /api/show. Returns an empty slice (not an error) for backends without
+// this endpoint (LM Studio) or any other failure — capability detection
+// is a best-effort enhancement, not something that should block startup.
+func (c *Client) ModelCapabilities(ctx context.Context, model string) []string {
+	root := strings.TrimSuffix(c.BaseURL, "/v1")
+	body, _ := json.Marshal(map[string]string{"model": model})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil
+	}
+	return parsed.Capabilities
+}
+
+// SupportsVision is a convenience check over ModelCapabilities.
+func (c *Client) SupportsVision(ctx context.Context, model string) bool {
+	for _, cap := range c.ModelCapabilities(ctx, model) {
+		if cap == "vision" {
+			return true
+		}
+	}
+	return false
+}
+
 // ListModels returns the model names the backend currently has available.
 // Ollama exposes its native /api/tags; other OpenAI-compatible backends
 // (LM Studio, llama.cpp server) are queried via the standard GET /models.

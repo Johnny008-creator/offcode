@@ -10,6 +10,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/skills"
+	"github.com/Johnny008-creator/offcode/internal/tools"
 )
 
 func metaSchema(props string, required ...string) json.RawMessage {
@@ -230,6 +231,33 @@ func (m Model) handleRemember(tc backend.ToolCall) (tea.Model, tea.Cmd) {
 	}
 	m.pushBlock(block{kind: blockSystem, text: "remembered: " + a.Note})
 	return m.recordToolResult(tc, "saved to persistent memory — it will be loaded into the system prompt in future sessions.", false)
+}
+
+// visionToolDefinition is separate from metaToolDefinitions() — it's
+// only added to a model's tool list when a runtime capability check
+// (Model.visionCapable) says the active model actually supports vision,
+// so it's built on demand by toolsForModel rather than always present.
+func visionToolDefinition() backend.Tool {
+	return backend.Tool{Type: "function", Function: backend.FunctionDef{
+		Name: "view_image",
+		Description: "Load an image file (png/jpg/jpeg/gif/webp/bmp) so you can actually see its content " +
+			"in your next response — use this for screenshots, diagrams, or photos the user references by path.",
+		Parameters: metaSchema(`{"path":{"type":"string"}}`, "path"),
+	}}
+}
+
+func (m Model) handleViewImage(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	var a struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Path) == "" {
+		return m.recordToolResult(tc, "error: view_image requires a non-empty \"path\" string", true)
+	}
+	b64, err := tools.ReadImageBase64(a.Path)
+	if err != nil {
+		return m.recordToolResult(tc, "error: "+err.Error(), true)
+	}
+	return m.recordToolResultImage(tc, "image attached: "+a.Path, []string{b64})
 }
 
 func (m Model) handleLoadSkill(tc backend.ToolCall) (tea.Model, tea.Cmd) {

@@ -3,7 +3,8 @@ package tui
 import "time"
 
 type splashDoneMsg struct {
-	contextLimit int
+	contextLimit  int
+	visionCapable bool
 }
 
 type toolExecutedMsg struct {
@@ -22,5 +23,6 @@ type modelsLoadedMsg struct {
 }
 
 type contextRefreshedMsg struct {
-	limit int
+	limit         int
+	visionCapable bool
 }

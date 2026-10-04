@@ -74,6 +74,7 @@ type Model struct {
 	tokensPerSec     float64
 	lastUsage        backend.Usage
 	contextLimit     int
+	visionCapable    bool
 
 	activity     string
 	showThinking bool
@@ -187,10 +188,11 @@ func splashCmd(c *backend.Client, cfg config.Config) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
 		ctxLen := c.ContextLength(context.Background(), cfg.Model)
+		vision := c.SupportsVision(context.Background(), cfg.Model)
 		if elapsed := time.Since(start); elapsed < 500*time.Millisecond {
 			time.Sleep(500*time.Millisecond - elapsed)
 		}
-		return splashDoneMsg{contextLimit: ctxLen}
+		return splashDoneMsg{contextLimit: ctxLen, visionCapable: vision}
 	}
 }
 
@@ -236,6 +238,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case splashDoneMsg:
 		m.contextLimit = msg.contextLimit
+		m.visionCapable = msg.visionCapable
 		m.phase = phaseChat
 		m.pushBlock(block{kind: blockBanner, text: renderBanner(m.cfg)})
 
@@ -275,6 +278,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case contextRefreshedMsg:
 		m.contextLimit = msg.limit
+		m.visionCapable = msg.visionCapable
 		return m, nil
 
 	case clipboardCopiedMsg:
@@ -607,7 +611,7 @@ func (m Model) startGeneration() (tea.Model, tea.Cmd) {
 	req := backend.ChatRequest{
 		Model:    m.cfg.Model,
 		Messages: m.messages,
-		Tools:    toolsForModel(m.cfg.Model),
+		Tools:    toolsForModel(m.cfg.Model, m.visionCapable),
 	}
 
 	var ch <-chan backend.StreamEvent
@@ -772,6 +776,8 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handleRemember(tc)
 	case "load_skill":
 		return m.handleLoadSkill(tc)
+	case "view_image":
+		return m.handleViewImage(tc)
 	}
 
 	// Loop breaker: a model that gets an error back sometimes just retries
@@ -865,6 +871,26 @@ func (m Model) recordToolResult(tc backend.ToolCall, content string, isError boo
 		Content:    content,
 	})
 	m.pushBlock(block{kind: blockToolResult, text: content, toolIsError: isError})
+	m.state = stateGenerating
+	return m.processNextToolCall()
+}
+
+// recordToolResultImage is recordToolResult but attaches image data to
+// the tool-result message (view_image) instead of plain text — same
+// bookkeeping (repeat-failure tracking, display block, resuming the
+// loop), just a different message shape.
+func (m Model) recordToolResultImage(tc backend.ToolCall, content string, images []string) (tea.Model, tea.Cmd) {
+	m.lastFailedCall = ""
+	m.repeatFailCount = 0
+
+	m.messages = append(m.messages, backend.Message{
+		Role:       "tool",
+		ToolCallID: tc.ID,
+		Name:       tc.Function.Name,
+		Content:    content,
+		Images:     images,
+	})
+	m.pushBlock(block{kind: blockToolResult, text: content})
 	m.state = stateGenerating
 	return m.processNextToolCall()
 }

@@ -215,8 +215,15 @@ func memorySection() string {
 // toolsForModel returns the full tool set, minus ask_user for Spark (see
 // above) — found it never used the tool live, so it's excluded rather than
 // just discouraged, trimming schema overhead for a model sensitive to it.
-func toolsForModel(modelTag string) []backend.Tool {
+// view_image is only added when visionCapable is true (checked once at
+// startup via the backend's /api/show capabilities, cached — see
+// Model.visionCapable) since sending an "images" field to a model that
+// can't use it is either ignored or an error depending on the backend.
+func toolsForModel(modelTag string, visionCapable bool) []backend.Tool {
 	all := append(tools.Definitions(), metaToolDefinitions()...)
+	if visionCapable {
+		all = append(all, visionToolDefinition())
+	}
 	if modelTag != sparkTag {
 		return all
 	}

@@ -39,6 +39,7 @@ func (t ThinkLevel) nativeValue() any {
 type nativeMessage struct {
 	Role      string           `json:"role"`
 	Content   string           `json:"content"`
+	Images    []string         `json:"images,omitempty"`
 	ToolCalls []nativeToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -77,7 +78,7 @@ type nativeStreamChunk struct {
 func toNativeMessages(msgs []Message) []nativeMessage {
 	out := make([]nativeMessage, len(msgs))
 	for i, m := range msgs {
-		nm := nativeMessage{Role: m.Role, Content: m.Content}
+		nm := nativeMessage{Role: m.Role, Content: m.Content, Images: m.Images}
 		for _, tc := range m.ToolCalls {
 			args := tc.Function.Arguments
 			if args == "" {

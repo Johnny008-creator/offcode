@@ -48,6 +48,19 @@ func metaToolDefinitions() []backend.Tool {
 	}
 }
 
+// visionToolDefinition mirrors internal/tui/plan.go's — only added to a
+// model's tool list when Session.visionCapable is true (see
+// toolsForModel), checked once via the backend's /api/show capabilities
+// rather than on every turn.
+func visionToolDefinition() backend.Tool {
+	return backend.Tool{Type: "function", Function: backend.FunctionDef{
+		Name: "view_image",
+		Description: "Load an image file (png/jpg/jpeg/gif/webp/bmp) so you can actually see its content " +
+			"in your next response — use this for screenshots, diagrams, or photos the user references by path.",
+		Parameters: metaSchema(`{"path":{"type":"string"}}`, "path"),
+	}}
+}
+
 type planStepStatus int
 
 const (

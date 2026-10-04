@@ -12,6 +12,7 @@ import (
 	"context"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
@@ -105,9 +106,10 @@ type Session struct {
 	toolIterations  int
 	planNudges      int
 
-	tokensPerSec float64
-	resumedCount int
-	sessionID    string
+	tokensPerSec  float64
+	resumedCount  int
+	sessionID     string
+	visionCapable bool
 
 	subs   map[int]chan struct{}
 	nextID int
@@ -128,11 +130,27 @@ func NewSession(cfg config.Config) *Session {
 	if cfg.Resume {
 		if sessions, err := session.List(cwd); err == nil && len(sessions) > 0 {
 			s.loadLocked(sessions[0].ID)
+			s.refreshVisionCapability()
 			return s
 		}
 	}
 	s.startNewLocked()
+	s.refreshVisionCapability()
 	return s
+}
+
+// refreshVisionCapability queries whether the active model supports
+// vision and caches it — called once at construction/resume rather than
+// on every turn, since it's a network round trip. No-op (leaves
+// visionCapable false) if no model is set yet; SetModel re-checks once
+// one is chosen.
+func (s *Session) refreshVisionCapability() {
+	if s.cfg.Model == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s.visionCapable = s.client.SupportsVision(ctx, s.cfg.Model)
 }
 
 // startNewLocked resets to a brand-new, empty session. Caller must not
@@ -323,8 +341,13 @@ func (s *Session) pushBlock(b Block) {
 // no model was given on the command line) and rewrites the system prompt
 // in place, matching the TUI's /model behavior.
 func (s *Session) SetModel(model string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	vision := s.client.SupportsVision(ctx, model)
+
 	s.mu.Lock()
 	s.cfg.Model = model
+	s.visionCapable = vision
 	if len(s.messages) > 0 && s.messages[0].Role == "system" {
 		s.messages[0].Content = buildSystemPrompt(model)
 	}

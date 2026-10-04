@@ -154,7 +154,7 @@ func refreshContextCmd(c *backend.Client, model string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return contextRefreshedMsg{limit: c.ContextLength(ctx, model)}
+		return contextRefreshedMsg{limit: c.ContextLength(ctx, model), visionCapable: c.SupportsVision(ctx, model)}
 	}
 }
 
