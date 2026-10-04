@@ -169,11 +169,8 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
 
 ## Other ideas worth considering
 
-- **[S] Diff preview in the confirm dialog.** Right now confirming a
-  `write`/`edit` shows raw tool-call JSON (truncated to 80 chars) — showing
-  an actual diff (new file vs. old, or the old_string/new_string change)
-  would make the auto-mode-off confirmation step genuinely useful instead
-  of just a speed bump.
+- ~~**[S] Diff preview in the confirm dialog.**~~ **Done 2026-10-04** —
+  `internal/tui/confirm.go`.
 - **[S] `offcode doctor --fix`.** Doctor currently only diagnoses. Since
   it already knows exactly what's missing (model not pulled, Ollama not
   running), it could offer to run the fix commands itself rather than
