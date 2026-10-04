@@ -452,3 +452,48 @@ vanilla HTML/CSS/JS served via `go:embed` — no npm, no bundler, nothing
 to install to run `offcode web` beyond the Go binary itself. Consistent
 with the project's single-static-binary goal; pulling in a frontend
 build pipeline for one page would work against that.
+
+### MCP client + browser automation (2026-10-04)
+
+Two real bugs caught by live testing before either feature shipped —
+worth recording since both are the "looked right in the diff, broke in
+actual use" kind.
+
+**MCP subprocess killed by the wrong context.** The first working
+version of `internal/mcpclient.Connect` ran the server subprocess via
+`exec.CommandContext(ctx, ...)` where `ctx` was the *same* context used
+to bound a 15s timeout around the initial handshake (`Connect`/
+`ListTools`). That context gets canceled as soon as the handshake
+finishes — which, via `exec.CommandContext`'s documented behavior, kills
+the process it governs. Result: every MCP server would die moments
+after connecting, silently, and the first real tool call afterward would
+fail. Fixed by giving the subprocess its own `context.Background()`
+(stopped only via `session.Close()`), while keeping the short timeout
+context *only* around the handshake calls. Caught before it ever reached
+live testing against offcode itself, because
+`TestServerSurvivesConnectContextExpiry` was written specifically to
+simulate "the caller's context dies right after Connect returns" — a
+scenario the happy-path integration test alone would never have
+exercised, since that test's own context stayed alive for its whole
+60s budget.
+
+**A full-resolution PNG screenshot broke the vision model's tokenizer.**
+`preview_page`'s first version captured at 1280x800 and returned raw
+PNG. Live-tested against gemma4:12b: the screenshot itself worked and
+got attached to a tool-result message correctly, but the *next* turn
+(after plan-nudging asked it to continue) failed with a backend error —
+`"Failed to tokenize prompt"`. The base64-encoded PNG re-sent as part of
+the full message history was large enough to break something in
+Ollama's vision tokenization path. Fixed by switching to JPEG (quality
+70, ~5-10x smaller than PNG for a UI screenshot) at a smaller default
+viewport (1024x640 instead of 1280x800) — confirmed via a re-test of the
+exact same live scenario, which then completed with an accurate
+description and no error. Added `TestPreviewPageDefaultSizeIsReasonable`
+asserting the default-viewport payload stays under 500KB, so a future
+change can't silently regress this.
+
+Both bugs share a lesson worth stating plainly: a tool that "worked" in
+isolated unit tests or a single successful call isn't fully verified
+until it's exercised across *multiple turns* of the real agent loop —
+the failure in both cases only showed up one step after the tool itself
+appeared to succeed.

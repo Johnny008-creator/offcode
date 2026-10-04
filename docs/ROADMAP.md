@@ -77,14 +77,15 @@ of a blank page next session. Rough effort tags: **S** (a session or less),
 
 ## Bigger capabilities (user's suggestions)
 
-- **[L] MCP (Model Context Protocol) client support.** Let offcode
-  connect to external MCP servers as additional tool providers —
-  filesystem, databases, whatever the MCP ecosystem has — instead of
-  only the hand-built tool set. Biggest capability multiplier on this
-  list without reinventing every integration ourselves. Needs a spec
-  read-through and a design decision on how MCP tools surface alongside
-  the built-ins (naming collisions, per-tier tool-list filtering like
-  Spark's ask_user removal).
+- ~~**[L] MCP (Model Context Protocol) client support.**~~ Done
+  2026-10-04. `internal/mcpclient` (official
+  github.com/modelcontextprotocol/go-sdk), configured via
+  `~/.offcode/mcp.json` + project-local, never model-writable. Naming
+  collision question resolved with a `mcp_<server>_` prefix (matching
+  this assistant's own MCP tool naming). A real bug was caught and fixed
+  before shipping — see docs/DECISIONS.md — where the server subprocess
+  was tied to the wrong context and died right after connecting.
+  Live-tested against the real @modelcontextprotocol/server-filesystem.
 - ~~**[L] Web interface (`offcode web`).**~~ Done 2026-10-04. Answer to
   the "how much of internal/tui is reusable" question: none of it
   directly — the TUI's loop is Bubble Tea continuation-passing style,
@@ -215,15 +216,16 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
   (works even in auto mode), post_tool_use runs after for side effects,
   non-blocking. Unit- and live-tested (a project hook blocking a bash
   command mentioning "secret," a post-hook logging real tool output).
-- **[M] Visual preview / browser automation tool.** Directly relevant to
-  the output-quality problem this project keeps finding (models write
-  HTML/CSS blind, never see the result). A `preview_page` tool that
-  screenshots a local HTML file in a headless browser — or further, a
-  small set of browser-automation primitives (click, scroll, read visible
-  text) — would let the agent actually check its own UI work instead of
-  only reasoning about markup. Pairs naturally with vision support
-  (already on the list above): screenshot the page, feed it back to a
-  vision-capable tier, let it judge/fix its own design.
+- ~~**[M] Visual preview / browser automation tool.**~~ Done 2026-10-04.
+  `preview_page` (vision-gated, like view_image) screenshots a local
+  HTML file or URL via chromedp; `browser_text` gets JS-rendered visible
+  text for pages fetch_url's static-HTML strip can't handle. A second
+  real bug caught live: a full-res PNG screenshot's base64 was large
+  enough to cause an actual backend tokenizer error — fixed with JPEG +
+  a smaller default viewport (see docs/DECISIONS.md). Live-tested:
+  gemma4:12b correctly described a hand-built page's exact colors and
+  text after calling preview_page. Click/scroll interactivity stayed out
+  of scope — the vision-feedback loop was the actual value here.
 - **[M] Semantic codebase search.** Grep is exact-match only; embeddings
   over the codebase (even a small local embedding model) would let the
   agent find "the function that handles X" by meaning, not just literal
