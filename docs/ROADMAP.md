@@ -209,10 +209,12 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
   test image, asked it to view_image + describe, got an accurate
   description of the real shapes/colors back through both the TUI and
   the web API.
-- **[S] Hooks.** User-definable pre/post tool-call hooks (shell commands
-  run around specific tool invocations) — mentioned as out of scope early
-  on, still plausible as a small, self-contained feature whenever there's
-  a concrete use case for it.
+- ~~**[S] Hooks.**~~ Done 2026-10-04. `internal/hooks` + hand-edited
+  `~/.offcode/hooks.json` / `<cwd>/.offcode/hooks.json` (merged, never
+  model-writable — a human trust boundary). pre_tool_use can deny a call
+  (works even in auto mode), post_tool_use runs after for side effects,
+  non-blocking. Unit- and live-tested (a project hook blocking a bash
+  command mentioning "secret," a post-hook logging real tool output).
 - **[M] Visual preview / browser automation tool.** Directly relevant to
   the output-quality problem this project keeps finding (models write
   HTML/CSS blind, never see the result). A `preview_page` tool that
