@@ -3,10 +3,12 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
+	"github.com/Johnny008-creator/offcode/internal/memory"
 )
 
 func metaSchema(props string, required ...string) json.RawMessage {
@@ -33,6 +35,13 @@ func metaToolDefinitions() []backend.Tool {
 			Description: "Ask the user to choose between multiple reasonable options when the right approach " +
 				"is genuinely ambiguous and you have a recommendation. Don't use this for things you can reasonably decide yourself.",
 			Parameters: metaSchema(`{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"description":"At least 2 options"},"recommended_index":{"type":"integer","description":"0-based index of the option you recommend, if any"}}`, "question", "options"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name: "remember",
+			Description: "Save a short, durable note that should carry over into future sessions in " +
+				"this or any project — a user preference, a project convention, a fact worth not re-discovering. " +
+				"Don't use this for anything specific to just the current task.",
+			Parameters: metaSchema(`{"note":{"type":"string","description":"One short, self-contained sentence."}}`, "note"),
 		}},
 	}
 }
@@ -200,6 +209,20 @@ func (m Model) resolveAskUser() (tea.Model, tea.Cmd) {
 	m.picker = pickerNone
 	m.resizeViewport()
 	return m.recordToolResult(tc, answer, false)
+}
+
+func (m Model) handleRemember(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	var a struct {
+		Note string `json:"note"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Note) == "" {
+		return m.recordToolResult(tc, "error: remember requires a non-empty \"note\" string", true)
+	}
+	if err := memory.Append(a.Note); err != nil {
+		return m.recordToolResult(tc, "error: couldn't save note: "+err.Error(), true)
+	}
+	m.pushBlock(block{kind: blockSystem, text: "remembered: " + a.Note})
+	return m.recordToolResult(tc, "saved to persistent memory — it will be loaded into the system prompt in future sessions.", false)
 }
 
 func (m Model) cancelAskUser() (tea.Model, tea.Cmd) {

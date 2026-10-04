@@ -18,6 +18,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/agent"
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/session"
 	"github.com/Johnny008-creator/offcode/internal/tools"
@@ -493,8 +494,20 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 	case "/usage":
 		m.pushBlock(block{kind: blockSystem, text: m.renderUsageReport()})
 
+	case "/remember":
+		note := strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
+		if note == "" {
+			m.pushBlock(block{kind: blockSystem, text: "usage: /remember <note to keep across sessions>"})
+			return m, nil
+		}
+		if err := memory.Append(note); err != nil {
+			m.pushBlock(block{kind: blockSystem, text: "couldn't save note: " + err.Error()})
+			return m, nil
+		}
+		m.pushBlock(block{kind: blockSystem, text: "remembered: " + note})
+
 	default:
-		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, or /thinking)"})
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, or /thinking)"})
 	}
 	return m, nil
 }
@@ -693,6 +706,8 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handlePlanUpdate(tc)
 	case "ask_user":
 		return m.handleAskUser(tc)
+	case "remember":
+		return m.handleRemember(tc)
 	}
 
 	// Loop breaker: a model that gets an error back sometimes just retries

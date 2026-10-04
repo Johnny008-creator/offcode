@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
+	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tools"
 )
@@ -176,7 +178,19 @@ func buildSystemPrompt(modelTag string) string {
 
 	name := identityName(modelTag)
 	base := fmt.Sprintf(basePromptTemplate, name, name, askUserPolicy(modelTag), runtime.GOOS, shell, home, cwd)
-	return base + tierAddendum(modelTag)
+	return base + tierAddendum(modelTag) + memorySection()
+}
+
+// memorySection loads ~/.offcode/memory.md (see internal/memory) into the
+// system prompt, if anything has been remembered yet. Best-effort: a read
+// failure here just means an empty memory section, never a crash.
+func memorySection() string {
+	notes, err := memory.ReadAll()
+	if err != nil || strings.TrimSpace(notes) == "" {
+		return ""
+	}
+	return "\n\nRemembered from earlier sessions (saved via /remember or the remember tool — " +
+		"treat these as standing facts/preferences unless the user says otherwise this turn):\n" + notes
 }
 
 // toolsForModel returns the full tool set, minus ask_user for Spark (see
