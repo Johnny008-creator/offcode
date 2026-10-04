@@ -184,10 +184,8 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
   that reports back a summary is the same pattern Claude Code's own
   Agent tool uses, and local models doing it to each other could help
   the weaker tiers punt hard sub-problems to a stronger one.
-- **[S] Usage export.** `/usage` and the monitor show a live report;
-  exporting `~/.offcode/usage.log` to CSV (or just documenting that it's
-  plain JSONL and already greppable) would help anyone wanting to graph
-  it elsewhere.
+- ~~**[S] Usage export.**~~ **Done 2026-10-04** — `offcode usage` (CLI
+  report) and `offcode usage --csv`.
 - **[M] Vision support.** gemma4 has vision-capable variants. If a loaded
   model supports images, a `view_image`-style tool (screenshot, local
   image file) could let the agent actually look at UI output it built
