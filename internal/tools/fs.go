@@ -7,7 +7,18 @@ import (
 	"strings"
 )
 
+// Read returns a file's content as text. PDF and DOCX get their text
+// extracted rather than returned as raw bytes (which would just be
+// binary garbage to the model) — detected by extension, not content
+// sniffing, since both formats are themselves zip/binary containers
+// that don't have a simple magic-byte check worth the complexity here.
 func Read(path string) (string, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".pdf":
+		return extractPDF(path)
+	case ".docx":
+		return extractDOCX(path)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
