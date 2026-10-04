@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"time"
 
@@ -37,13 +38,40 @@ func New(cfg config.Config) *Server {
 	return s
 }
 
+func listen(addr string, cfg config.Config) (*Server, net.Listener, error) {
+	s := New(cfg)
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, l, nil
+}
+
 // Serve starts the HTTP server on addr (expected to be 127.0.0.1:PORT —
 // this is a local dev tool, never meant to be exposed beyond localhost)
-// and blocks until it exits.
+// and blocks until it exits. Used by the `offcode web` subcommand.
 func Serve(addr string, cfg config.Config) error {
-	s := New(cfg)
-	fmt.Printf("offcode web: listening on http://%s (local only)\n", addr)
-	return http.ListenAndServe(addr, s.mux)
+	s, l, err := listen(addr, cfg)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("offcode web: listening on http://%s (local only)\n", l.Addr().String())
+	return http.Serve(l, s.mux)
+}
+
+// Start binds addr immediately (so a bind failure, e.g. "port already in
+// use", surfaces synchronously) and serves in a background goroutine,
+// returning right away. Used by the TUI's /web command, where starting a
+// web server must not block the chat loop.
+func Start(addr string, cfg config.Config) (actualAddr string, err error) {
+	s, l, err := listen(addr, cfg)
+	if err != nil {
+		return "", err
+	}
+	go func() {
+		_ = http.Serve(l, s.mux)
+	}()
+	return l.Addr().String(), nil
 }
 
 func (s *Server) routes() {

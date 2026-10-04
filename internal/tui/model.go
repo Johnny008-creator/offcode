@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/permission"
 	"github.com/Johnny008-creator/offcode/internal/session"
 	"github.com/Johnny008-creator/offcode/internal/tools"
+	"github.com/Johnny008-creator/offcode/internal/webserver"
 )
 
 const maxToolIterationsPerTurn = 25
@@ -102,6 +104,8 @@ type Model struct {
 
 	cwd          string
 	resumedCount int
+
+	webAddr string
 
 	quitting bool
 }
@@ -494,6 +498,27 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 	case "/usage":
 		m.pushBlock(block{kind: blockSystem, text: m.renderUsageReport()})
 
+	case "/web":
+		if m.webAddr != "" {
+			m.pushBlock(block{kind: blockSystem, text: "web interface already running at http://" + m.webAddr})
+			return m, nil
+		}
+		port := 7878
+		if len(fields) > 1 {
+			if p, err := strconv.Atoi(fields[1]); err == nil {
+				port = p
+			}
+		}
+		addr, err := webserver.Start(fmt.Sprintf("127.0.0.1:%d", port), m.cfg)
+		if err != nil {
+			m.pushBlock(block{kind: blockError, text: "couldn't start web interface: " + err.Error()})
+			return m, nil
+		}
+		m.webAddr = addr
+		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf(
+			"web interface running at http://%s — open it in your browser. "+
+				"It's a separate session sharing this directory's saved conversation, not live-synced with this terminal.", addr)})
+
 	case "/research":
 		if len(fields) < 2 {
 			m.pushBlock(block{kind: blockSystem, text: "usage: /research <question> [--depth=lite|normal|deep] (default: normal)"})
@@ -527,7 +552,7 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 		m.pushBlock(block{kind: blockSystem, text: "remembered: " + note})
 
 	default:
-		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, /research, or /thinking)"})
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, /research, /web, or /thinking)"})
 	}
 	return m, nil
 }
