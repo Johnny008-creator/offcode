@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
@@ -123,6 +124,7 @@ func runModels(args []string) {
 
 func runDoctor(args []string) {
 	fs := flag.NewFlagSet("offcode doctor", flag.ExitOnError)
+	fixFlag := fs.Bool("fix", false, "automatically run `ollama pull` for any missing tier model")
 	fs.Parse(args)
 
 	ok := true
@@ -153,6 +155,7 @@ func runDoctor(args []string) {
 		check("SearXNG reachable (web_search)", resp.StatusCode == http.StatusOK, "http://127.0.0.1:8888")
 	}
 
+	var missing []string
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := backend.NewClient("http://localhost:11434/v1")
@@ -166,13 +169,37 @@ func runDoctor(args []string) {
 		}
 		for _, t := range tiers.Known {
 			check(t.DisplayName+" ("+t.Tag+")", installedSet[t.Tag], "ollama pull "+t.Tag)
+			if !installedSet[t.Tag] {
+				missing = append(missing, t.Tag)
+			}
 		}
 	}
 
+	if *fixFlag && len(missing) > 0 {
+		fmt.Println()
+		fmt.Printf("--fix: pulling %d missing model(s)...\n", len(missing))
+		for _, tag := range missing {
+			fmt.Printf("\n$ ollama pull %s\n", tag)
+			cmd := exec.Command("ollama", "pull", tag)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "offcode doctor: pulling %s failed: %v\n", tag, err)
+				os.Exit(1)
+			}
+		}
+		fmt.Println("\nAll missing models pulled.")
+		return
+	}
+
 	fmt.Println()
-	if ok {
+	switch {
+	case ok:
 		fmt.Println("All checks passed.")
-	} else {
+	case len(missing) > 0 && !*fixFlag:
+		fmt.Println("Some checks failed — see above. Run `offcode doctor --fix` to pull missing models automatically.")
+		os.Exit(1)
+	default:
 		fmt.Println("Some checks failed — see above.")
 		os.Exit(1)
 	}
