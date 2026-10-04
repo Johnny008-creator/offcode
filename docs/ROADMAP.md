@@ -111,19 +111,32 @@ of a blank page next session. Rough effort tags: **S** (a session or less),
   normal confirm flow all apply unmodified. Always saves a `.md` report
   to the cwd; live-tested end to end (lite depth) against qwen3:8b.
   `.pdf`/`.docx` export remain a follow-up, as originally scoped.
-- **[M] Skills: CSS/HTML/design quality.** The system prompt already
-  pushes "good modern styling," but a loadable skill (reference palettes,
-  layout patterns, a checklist) could push quality further than prompt
-  text alone, especially for Spark/Ember where prompt space and model
-  capacity are both tight. Needs a decision on the loading mechanism —
-  always-on addition to the prompt vs. a tool the model calls on demand
-  (`load_skill("css-design")`), which also affects token budget.
-- **[M] Skills: document formats (PDF, DOCX, MD, etc.).** Today `read`
-  and `fetch_url` only handle plain text/HTML. Reading a PDF or DOCX
-  needs a real extraction library (e.g. a Go PDF text extractor, DOCX is
-  a zip of XML so more tractable without a huge dependency). Writing
-  these formats is a further step up in complexity — scope the read side
-  first, writing only if it turns out to matter.
+- ~~**[M] Skills: CSS/HTML/design quality.**~~ Done 2026-10-04, as part of
+  a full 20-skill library (`internal/skills`) rather than just this one
+  topic — see below.
+- ~~**[M] Skills: document formats (PDF, DOCX, MD, etc.).**~~ Done
+  2026-10-04. `read` now extracts real text from `.pdf`
+  (github.com/ledongthuc/pdf) and `.docx` (unzip + parse
+  word/document.xml, no OOXML dependency) instead of returning binary
+  garbage. Writing these formats back out is explicitly NOT supported
+  (the `document-formats` skill tells the model to say so rather than
+  produce a broken file) — still scoped out, as originally planned.
+  Covered by a real regression test (`internal/tools/docformats_test.go`
+  + fixtures), not just a manual check.
+- ~~**[M] Skills library, general.**~~ Done 2026-10-04 — went beyond the
+  two items above per explicit request ("klidně jich udělej 20"). 20
+  reference docs total: css-design, git-conventions, api-design,
+  sql-schema-design, security-basics, testing-strategy, error-handling,
+  performance-optimization, code-review-checklist, go-idioms,
+  python-idioms, js-ts-idioms, docker-containers, shell-scripting,
+  regex-patterns, accessibility, technical-writing,
+  debugging-methodology, concurrency-patterns, document-formats. Only a
+  one-line catalog (name + description) sits in every system prompt;
+  full content loads on demand via a new `load_skill` meta-tool — chosen
+  over always-on inclusion specifically to keep prompt overhead near
+  zero for the ~19 topics a given task doesn't touch. Live-tested: model
+  correctly called load_skill, got real file content back, and answered
+  a detail question from it accurately.
 
 ## Generative media (images, video, music)
 
