@@ -193,12 +193,14 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
   `git diff`/`log`/`commit` access, so the actual gap was knowledge, not
   a missing capability. A plan-to-PR-description generator remains a
   possible future add if it turns out the skill alone isn't enough.
-- **[M] Multi-agent / subagents.** Flagged as deliberately out of v0.1
-  scope from the start. Worth reconsidering once context compaction
-  exists — a sub-agent for a side investigation (research, test-writing)
-  that reports back a summary is the same pattern Claude Code's own
-  Agent tool uses, and local models doing it to each other could help
-  the weaker tiers punt hard sub-problems to a stronger one.
+- ~~**[M] Multi-agent / subagents.**~~ Done 2026-10-04.
+  `spawn_subagent(task, tier?)` (`internal/subagent`) runs a bounded
+  headless loop, deliberately read-only (no write/edit/bash — no human
+  is attached to approve anything riskier) with an optional tier
+  override so a weaker model can punt a hard sub-problem to a stronger
+  one. Live-tested: qwen3:8b delegated a bug-investigation task to a
+  forge-tier subagent, which correctly identified a misleading comment
+  wasn't actually a bug and reported back a specific, accurate analysis.
 - ~~**[S] Usage export.**~~ **Done 2026-10-04** — `offcode usage` (CLI
   report) and `offcode usage --csv`.
 - ~~**[M] Vision support.**~~ Done 2026-10-04. `view_image(path)` is
