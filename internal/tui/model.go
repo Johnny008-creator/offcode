@@ -494,6 +494,26 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 	case "/usage":
 		m.pushBlock(block{kind: blockSystem, text: m.renderUsageReport()})
 
+	case "/research":
+		if len(fields) < 2 {
+			m.pushBlock(block{kind: blockSystem, text: "usage: /research <question> [--depth=lite|normal|deep] (default: normal)"})
+			return m, nil
+		}
+		if m.state != stateIdle {
+			m.pushBlock(block{kind: blockSystem, text: "can't start research while a generation is already in progress"})
+			return m, nil
+		}
+		question, depth := parseResearchCommand(text)
+		if question == "" {
+			m.pushBlock(block{kind: blockSystem, text: "usage: /research <question> [--depth=lite|normal|deep] (default: normal)"})
+			return m, nil
+		}
+		prompt, filename := researchPrompt(question, depth)
+		depthName := []string{"lite", "normal", "deep"}[depth]
+		m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf("starting %s research — will save to %s", depthName, filename)})
+		display := fmt.Sprintf("/research %s (depth=%s)", question, depthName)
+		return m.submitUserMessageDisplay(display, prompt)
+
 	case "/remember":
 		note := strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
 		if note == "" {
@@ -507,16 +527,24 @@ func (m Model) handleCommand(text string) (tea.Model, tea.Cmd) {
 		m.pushBlock(block{kind: blockSystem, text: "remembered: " + note})
 
 	default:
-		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, or /thinking)"})
+		m.pushBlock(block{kind: blockSystem, text: "unknown command: " + fields[0] + " (try /settings, /model, /effort, /usage, /remember, /research, or /thinking)"})
 	}
 	return m, nil
 }
 
 func (m Model) submitUserMessage(text string) (tea.Model, tea.Cmd) {
+	return m.submitUserMessageDisplay(text, text)
+}
+
+// submitUserMessageDisplay is submitUserMessage but with a separate, shorter
+// string shown in the transcript's "you" block — used by /research, whose
+// actual message to the model is a long crafted instruction the user never
+// typed and shouldn't have to read back.
+func (m Model) submitUserMessageDisplay(display, actual string) (tea.Model, tea.Cmd) {
 	m.maybeCompact()
-	m.pushBlock(block{kind: blockUser, text: text})
+	m.pushBlock(block{kind: blockUser, text: display})
 	m.viewport.GotoBottom()
-	m.messages = append(m.messages, backend.Message{Role: "user", Content: text})
+	m.messages = append(m.messages, backend.Message{Role: "user", Content: actual})
 	m.toolIterations = 0
 	m.planNudges = 0
 	m.promptStart = time.Now()
