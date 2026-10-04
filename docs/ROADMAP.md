@@ -171,10 +171,9 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
 
 - ~~**[S] Diff preview in the confirm dialog.**~~ **Done 2026-10-04** —
   `internal/tui/confirm.go`.
-- **[S] `offcode doctor --fix`.** Doctor currently only diagnoses. Since
-  it already knows exactly what's missing (model not pulled, Ollama not
-  running), it could offer to run the fix commands itself rather than
-  just printing them.
+- ~~**[S] `offcode doctor --fix`.**~~ **Done 2026-10-04** — pulls missing
+  tier models automatically; doesn't yet start Ollama/SearXNG if those
+  aren't reachable, just the model-pull part.
 - **[M] Git-aware helpers.** A tool or system-prompt policy for
   committing after a successful task, or drafting a PR description from
   the session's plan — the plan-tracking data already captures "what was
