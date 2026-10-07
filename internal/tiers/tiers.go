@@ -28,6 +28,7 @@ var Known = []ModelTier{
 	{Tag: "qwen3.5:4b", DisplayName: "Offcode Ember", Tagline: "lite — quick everyday coding", PromptPer1M: 0.15, CompletionPer1M: 0.60},
 	{Tag: "qwen3:8b", DisplayName: "Offcode Forge", Tagline: "medium — balanced default", PromptPer1M: 0.30, CompletionPer1M: 1.20},
 	{Tag: "gemma4:12b", DisplayName: "Offcode Anvil", Tagline: "high — most capable, slower", PromptPer1M: 0.60, CompletionPer1M: 2.40},
+	{Tag: "gpt-oss:20b", DisplayName: "Offcode Foundry", Tagline: "ultra high — largest, hardest problems, slowest", PromptPer1M: 1.20, CompletionPer1M: 4.80},
 }
 
 // EstimatedCost computes the illustrative equivalent-cloud-cost for a
