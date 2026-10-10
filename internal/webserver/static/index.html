@@ -1,112 +1,286 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff">
+<script>
+(() => {
+  const themes = ['grafit','terminal','papir','fjord','brutal','sklo','med','svycarsky','neon','mech'];
+  let value;
+  try { value = JSON.parse(localStorage.getItem('offcode.theme')); } catch {}
+  const theme = themes.includes(value?.theme) ? value.theme : 'grafit';
+  const mode = ['light','dark'].includes(value?.mode) ? value.mode : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.mode = mode;
+})();
+</script>
 <title>offcode</title>
-<link rel="stylesheet" href="vendor/hljs-dark.min.css">
-<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23000'/><path d='M8 44a24 24 0 0 1 48 0' fill='none' stroke='%237fa8ff' stroke-width='3.5'/><circle cx='32' cy='44' r='6' fill='%23fff'/></svg>">
+<link rel="stylesheet" href="css/themes.css">
+<link rel="stylesheet" href="css/style.css">
+
+<script defer src="vendor/marked.min.js"></script>
+<script defer src="vendor/dompurify.min.js"></script>
+<script defer src="vendor/highlight.min.js"></script>
+<script type="module" src="js/app.js"></script>
 </head>
-<body>
-<div id="app">
-  <header id="topbar">
-    <div class="brand">
-      <button id="sidebar-toggle" class="btn btn-ghost icon-btn" title="sessions">☰</button>
-      <span class="logo">oc</span>
-      <span class="title">offcode</span>
-    </div>
-    <div class="status-group">
-      <span id="model-badge" class="badge">no model</span>
-      <select id="mode-select" class="mode-select">
-        <option value="plan">plan</option>
-        <option value="default">default</option>
-        <option value="auto">auto</option>
-      </select>
-      <span id="activity" class="activity"></span>
-      <button id="stop-btn" class="btn btn-ghost" hidden>stop</button>
-      <button id="usage-btn" class="btn btn-ghost" title="usage report">usage</button>
-      <button id="research-btn" class="btn btn-ghost" title="deep research">research</button>
-    </div>
-  </header>
+<body class="booting">
 
-  <main id="layout">
-    <aside id="session-sidebar">
-      <button id="new-session-btn" class="btn btn-primary new-session-btn">+ new session</button>
-      <div id="session-list" class="session-list"></div>
-    </aside>
+<div class="app" id="app">
 
-    <section id="transcript-wrap">
-      <div id="transcript"></div>
-      <form id="composer">
-        <textarea id="input" placeholder="type your request..." rows="1"></textarea>
-        <button id="mic-btn" type="button" class="btn" title="Dictate using local Whisper">record</button>
-        <button id="send-btn" type="submit" class="btn btn-primary">send</button>
-      </form>
+  <!-- ===== sidebar ===== -->
+  <aside class="sidebar" id="sidebar" aria-label="Sessions">
+    <div class="sb-top">
+      <button class="brand" id="newChatBrand" type="button" aria-label="offcode — new session">
+        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 46a26 26 0 0 1 52 0" fill="none" stroke="currentColor" stroke-width="4"/><circle cx="32" cy="46" r="7" fill="#fff"/></svg>
+        <span class="brand-name">offcode</span>
+      </button>
+      <button class="icon-btn sb-close" id="sbClose" type="button" aria-label="Close panel" data-tip="Close panel">
+        <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+    </div>
+
+    <button class="new-chat" id="newChat" type="button">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      New session
+      <kbd>Ctrl ⇧ O</kbd>
+    </button>
+
+    <label class="sb-search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="search" type="search" placeholder="Search sessions" autocomplete="off">
+    </label>
+
+    <nav class="conv-list" id="convList"></nav>
+
+    <div class="sb-foot">
+      <button class="sb-link" id="usageBtn" type="button">
+        <svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>
+        Usage
+      </button>
+      <button class="sb-link" id="researchBtn" type="button">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        Deep research
+      </button>
+      <button class="sb-link" id="openSettings" type="button">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        Settings
+      </button>
+    </div>
+  </aside>
+  <div class="sb-scrim" id="sbScrim"></div>
+
+  <!-- ===== main ===== -->
+  <main class="main" id="main">
+    <header class="topbar">
+      <button class="icon-btn sb-open" id="sbOpen" type="button" aria-label="Open panel" data-tip="Sessions">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      </button>
+
+      <div class="model-picker">
+        <button class="model-btn" id="modelBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span class="model-dot"></span>
+          <span class="model-name" id="modelName">Loading…</span>
+          <svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="model-menu" id="modelMenu" role="listbox" hidden>
+          <div class="mm-list" id="modelList"></div>
+        </div>
+      </div>
+
+      <div class="mode">
+        <button class="chip" type="button" id="modeBtn" aria-haspopup="true" aria-expanded="false" data-tip="Permission mode">
+          <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+          <span id="modeLabel">Default</span>
+        </button>
+        <div class="mode-menu" id="modeMenu" hidden>
+          <button type="button" data-mode="plan" role="menuitemradio"><b>Plan</b><span>Read-only — no writes or commands</span></button>
+          <button type="button" data-mode="default" role="menuitemradio"><b>Default</b><span>Confirm writes and shell commands</span></button>
+          <button type="button" data-mode="auto" role="menuitemradio"><b>Auto</b><span>No confirmation — full autonomy</span></button>
+        </div>
+      </div>
+
+      <span class="chip" id="activityChip" hidden></span>
+
+      <div class="topbar-right">
+        <button class="icon-btn" id="stopBtn" type="button" aria-label="Stop generating" data-tip="Stop" hidden>
+          <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="icon-btn" id="exportBtn" type="button" aria-label="Export session" data-tip="Export to Markdown">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="chat" id="chat" aria-live="polite">
+      <div class="welcome" id="welcome">
+        <div class="wl-mark" aria-hidden="true">
+          <svg viewBox="0 0 120 70"><path d="M4 66a56 56 0 0 1 112 0" fill="none" stroke="currentColor" stroke-width="2" opacity=".5"/><circle cx="60" cy="66" r="9" fill="currentColor"/></svg>
+        </div>
+        <h1 class="wl-title">offcode</h1>
+        <p class="wl-sub">Local coding agent. What are you building?</p>
+        <div class="suggestions" id="suggestions"></div>
+      </div>
+      <div class="messages" id="messages"></div>
+      <button class="scroll-down" id="scrollDown" type="button" aria-label="Scroll to bottom" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+      </button>
     </section>
 
-    <aside id="sidebar">
+    <div class="plan-panel" id="planPanel" hidden>
       <h3>Plan</h3>
-      <div id="plan-list" class="plan-list empty">no plan yet</div>
-    </aside>
+      <div id="planList"></div>
+    </div>
+
+    <!-- ===== composer ===== -->
+    <form class="composer" id="composer" autocomplete="off">
+      <div class="cmp-box" id="cmpBox">
+        <textarea id="input" rows="1" placeholder="Ask anything…" aria-label="Message"></textarea>
+        <div class="cmp-row">
+          <div class="cmp-left"></div>
+          <div class="cmp-right">
+            <button class="tool-btn" id="micBtn" type="button" aria-label="Dictate" data-tip="Dictate using local Whisper">
+              <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            </button>
+            <button class="send" id="sendBtn" type="submit" aria-label="Send" disabled>
+              <svg class="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <svg class="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p class="cmp-note">offcode runs entirely on your own local models and can make mistakes. Check important things.</p>
+    </form>
   </main>
+
+  <!-- ===== preview panel ===== -->
+  <aside class="artifact" id="artifact" aria-label="Preview" hidden>
+    <div class="art-head">
+      <div class="art-tabs" role="tablist">
+        <button type="button" role="tab" class="art-tab" data-tab="preview" aria-selected="true">Preview</button>
+        <button type="button" role="tab" class="art-tab" data-tab="code" aria-selected="false">Code</button>
+      </div>
+      <span class="art-title" id="artTitle"></span>
+      <div class="art-actions">
+        <button class="icon-btn" type="button" data-art="reload" aria-label="Reload" data-tip="Reload">
+          <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+        </button>
+        <button class="icon-btn" type="button" data-art="copy" aria-label="Copy code" data-tip="Copy code">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>
+        </button>
+        <button class="icon-btn" type="button" data-art="download" aria-label="Download" data-tip="Download file">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+        </button>
+        <button class="icon-btn" type="button" data-art="open" aria-label="Open in new tab" data-tip="Open in new tab">
+          <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+        </button>
+        <button class="icon-btn" type="button" data-art="full" aria-label="Fullscreen" data-tip="Fullscreen">
+          <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+        <button class="icon-btn" type="button" data-art="close" aria-label="Close preview" data-tip="Close">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="art-body">
+      <iframe id="artFrame" title="Preview" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-pointer-lock allow-downloads" allow="fullscreen; clipboard-write; autoplay"></iframe>
+      <pre class="art-code" id="artCode" hidden><code class="hljs"></code></pre>
+    </div>
+    <div class="art-resize" id="artResize" aria-hidden="true"></div>
+  </aside>
 </div>
 
-<div id="model-picker-overlay" class="overlay" hidden>
-  <div class="modal">
-    <h2>Select a model</h2>
-    <div id="model-list" class="model-list"></div>
+<!-- ===== settings ===== -->
+<dialog class="modal" id="settings">
+  <form method="dialog" class="modal-card">
+    <header class="modal-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" value="close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <section class="set-group appearance" aria-labelledby="appearanceTitle">
+        <h3 id="appearanceTitle">Appearance</h3>
+        <p class="hint">Saved to this browser.</p>
+        <div class="theme-modes" role="group" aria-label="Theme mode">
+          <button type="button" data-theme-mode="system" aria-pressed="true">System</button>
+          <button type="button" data-theme-mode="light" aria-pressed="false">Light</button>
+          <button type="button" data-theme-mode="dark" aria-pressed="false">Dark</button>
+        </div>
+        <div class="theme-grid" id="themeGrid" role="group" aria-label="Theme"></div>
+      </section>
+      <section class="set-group">
+        <h3>Behavior</h3>
+        <label class="toggle" style="display:flex;align-items:center;gap:10px;margin:10px 0;font-size:14px;">
+          <input type="checkbox" id="sendOnEnter" checked><span>Enter sends the message (Shift+Enter for a new line)</span>
+        </label>
+      </section>
+    </div>
+    <footer class="modal-foot">
+      <span class="hint" id="shortcutsHint">Shortcuts: Ctrl+Shift+O new session · Ctrl+B panel · Esc stop</span>
+      <button class="btn primary" value="close">Done</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ===== confirm tool call ===== -->
+<dialog class="modal" id="confirm">
+  <div class="modal-card">
+    <header class="modal-head"><h2>Confirm tool call</h2></header>
+    <div class="modal-body">
+      <div class="confirm-tool-name" id="confirmToolName"></div>
+      <pre class="confirm-args" id="confirmArgs"></pre>
+    </div>
+    <footer class="modal-foot">
+      <button class="btn" id="confirmDeny" type="button">Deny <kbd>n</kbd></button>
+      <button class="btn primary" id="confirmAllow" type="button">Allow <kbd>y</kbd></button>
+    </footer>
   </div>
-</div>
+</dialog>
 
-<div id="confirm-overlay" class="overlay" hidden>
-  <div class="modal">
-    <h2>Confirm tool call</h2>
-    <div class="confirm-tool-name" id="confirm-tool-name"></div>
-    <pre class="confirm-args" id="confirm-args"></pre>
-    <div class="modal-actions">
-      <button id="confirm-deny" class="btn btn-ghost">deny (n)</button>
-      <button id="confirm-allow" class="btn btn-primary">allow (y)</button>
+<!-- ===== ask user ===== -->
+<dialog class="modal" id="ask">
+  <div class="modal-card">
+    <header class="modal-head"><h2 id="askQuestion"></h2></header>
+    <div class="modal-body">
+      <div class="ask-options" id="askOptions"></div>
     </div>
   </div>
-</div>
+</dialog>
 
-<div id="ask-overlay" class="overlay" hidden>
-  <div class="modal">
-    <h2 id="ask-question"></h2>
-    <div id="ask-options" class="ask-options"></div>
-  </div>
-</div>
-
-<div id="research-overlay" class="overlay" hidden>
-  <div class="modal">
-    <h2>Deep research</h2>
-    <textarea id="research-question" placeholder="What do you want researched?" rows="3"></textarea>
-    <div class="depth-row">
-      <label><input type="radio" name="depth" value="lite"> lite</label>
-      <label><input type="radio" name="depth" value="normal" checked> normal</label>
-      <label><input type="radio" name="depth" value="deep"> deep</label>
+<!-- ===== deep research ===== -->
+<dialog class="modal" id="research">
+  <div class="modal-card">
+    <header class="modal-head"><h2>Deep research</h2></header>
+    <div class="modal-body">
+      <label class="field"><span>What should offcode research?</span>
+        <textarea id="researchQuestion" rows="3" placeholder="What do you want researched?"></textarea></label>
+      <div class="depth-row">
+        <label><input type="radio" name="depth" value="lite"> Lite</label>
+        <label><input type="radio" name="depth" value="normal" checked> Normal</label>
+        <label><input type="radio" name="depth" value="deep"> Deep</label>
+      </div>
     </div>
-    <div class="modal-actions">
-      <button id="research-cancel" class="btn btn-ghost">cancel</button>
-      <button id="research-start" class="btn btn-primary">start</button>
-    </div>
+    <footer class="modal-foot">
+      <button class="btn" id="researchCancel" type="button">Cancel</button>
+      <button class="btn primary" id="researchStart" type="button">Start</button>
+    </footer>
   </div>
-</div>
+</dialog>
 
-<div id="usage-overlay" class="overlay" hidden>
-  <div class="modal modal-wide">
-    <h2>Usage</h2>
-    <div id="usage-chart" aria-label="Token usage by model"></div>
-    <pre id="usage-report"></pre>
-    <div class="modal-actions">
-      <button id="usage-close" class="btn btn-primary">close</button>
-    </div>
+<!-- ===== usage ===== -->
+<dialog class="modal wide" id="usage">
+  <div class="modal-card">
+    <header class="modal-head">
+      <h2>Usage</h2>
+      <button class="icon-btn" id="usageClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="modal-body" id="usageBody"></div>
   </div>
-</div>
+</dialog>
 
-<script src="vendor/marked.min.js"></script>
-<script src="vendor/highlight.min.js"></script>
-<script src="vendor/dompurify.min.js"></script>
-<script src="app.js"></script>
+<div class="toast" id="toast" role="status" hidden></div>
+
 </body>
 </html>
