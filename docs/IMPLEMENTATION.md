@@ -24,6 +24,12 @@ model run, and a skipped integration test is not a pass.
 - [x] Cancellable long tools and web confirmation waits; serialize final session
   persistence before publishing idle.
 - [x] Setup documentation, example image workflow, offline tests and builds.
+- [x] Windows installer: Inno Setup GUI wizard (also runnable unattended from
+  `cmd` via its own `/VERYSILENT` switch), a plain batch installer, and a
+  PowerShell installer — all three install to `%LocalAppData%\Programs\offcode`
+  and add it to the user PATH without admin rights, plus a tag-triggered
+  release workflow that builds and attaches both the raw exe and the
+  compiled installer. Added 2026-10-10.
 
 These implementations retain explicit limits: the repository map is not a
 multi-language tree-sitter/PageRank graph; Windows GPU monitoring is unavailable;
@@ -65,6 +71,10 @@ or automatic model promotion is installed.
   weights and reviewed real examples have not been selected for a run. No personal adapter has been trained or activated.
 - [ ] Windows runtime and UI behavior. Cross-build/static checks passed; no
   Windows runtime or CI execution was available in this session.
+- [ ] The three Windows installers (`scripts/windows/offcode.iss`/`.bat`/`.ps1`)
+  and the `release.yml` Inno Setup build step. No `iscc`/`wine` is available in
+  this sandbox, so none have actually been compiled or run — only
+  hand-reviewed against Inno Setup/batch/PowerShell syntax rules.
 - [ ] Chromium/MCP integration tests and browser microphone/visual testing.
   External processes/network/browser sandbox restrictions remain.
 

@@ -1,0 +1,70 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build -o dist/offcode-linux-amd64 ./cmd/offcode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offcode-linux-amd64
+          path: dist/offcode-linux-amd64
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build offcode.exe
+        shell: pwsh
+        run: go build -o bin\offcode.exe .\cmd\offcode
+      - name: Derive version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Compile installer (Inno Setup, preinstalled on windows-latest)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=${{ steps.ver.outputs.version }} `
+            scripts\windows\offcode.iss
+      - name: Rename raw exe for the release asset list
+        shell: pwsh
+        run: Copy-Item bin\offcode.exe dist\offcode-windows-amd64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offcode-windows-amd64
+          path: |
+            dist\offcode-windows-amd64.exe
+            dist\offcode-setup-*.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/offcode-linux-amd64/offcode-linux-amd64
+            artifacts/offcode-windows-amd64/offcode-windows-amd64.exe
+            artifacts/offcode-windows-amd64/offcode-setup-*.exe
+          generate_release_notes: true

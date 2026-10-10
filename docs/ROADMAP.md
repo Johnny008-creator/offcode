@@ -50,10 +50,12 @@ adapter or generated AI image/video/music artifact yet.
 - **[S] Actually test the LM Studio backend.** Every live test this whole
   project has been Ollama — LM Studio's OpenAI-compat path has never been
   exercised against a real LM Studio instance, just read about.
-- **[M] Windows.** Mentioned as a target from the start, never touched.
-  `internal/sysmon` is Linux-only by construction (procfs/sysfs); the
-  bash tool already branches on `runtime.GOOS` but is untested; path
-  handling, the monitor, and SearXNG/Docker setup all need a real pass.
+- **[M] Windows.** Cross-build, native `internal/sysmon` CPU/memory
+  counters (`sysmon_windows.go`), CI matrix, and a GUI/cmd/PowerShell
+  installer (`scripts/windows/`, see README "Windows installer") are done
+  as of 2026-10-10. Still nothing has run on a real Windows machine: the
+  installers, the bash tool's `runtime.GOOS` branches, and SearXNG/Docker
+  setup all need a live pass there.
 
 ## Context, memory & learning
 

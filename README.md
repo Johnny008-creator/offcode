@@ -78,6 +78,36 @@ one-time `docker run` setup (`--restart unless-stopped`, so once it's up
 it just keeps running). Without it those two tools return an error; the
 rest of offcode works fine either way.
 
+## Windows installer
+
+Three ways to install on Windows, all installing to
+`%LocalAppData%\Programs\offcode` and adding it to the current user's PATH
+(no admin rights needed):
+
+- **GUI installer** — `offcode-setup-<version>.exe`
+  (`scripts/windows/offcode.iss`, built by Inno Setup). Double-click for the
+  normal wizard window, or run it unattended straight from `cmd`/a script
+  with Inno Setup's own silent switches:
+  ```bat
+  offcode-setup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES
+  ```
+- **Batch installer** — `scripts/windows/install.bat`, plain `cmd`, no
+  PowerShell: downloads the latest release (via `certutil`) or installs an
+  exe you already built (`install.bat path\to\offcode.exe`).
+  `install.bat /uninstall` removes it.
+- **PowerShell installer** — `scripts/windows/install.ps1`:
+  ```powershell
+  irm https://raw.githubusercontent.com/Johnny008-creator/offcode/master/scripts/windows/install.ps1 | iex
+  ```
+  or `.\install.ps1 -LocalExe ..\..\bin\offcode.exe`; `-Uninstall` to remove.
+
+Tagged releases (`.github/workflows/release.yml`) build `offcode.exe` and
+`offcode-setup-<version>.exe` on `windows-latest` (Inno Setup ships
+preinstalled on that runner image) and attach both, plus the Linux binary,
+to the GitHub release. None of the three installers have been run on a real
+Windows machine yet — only cross-built/vetted and reviewed on Linux, per
+[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
+
 ## Semantic code search
 
 With an Ollama backend, `semantic_search` finds code by meaning and returns
@@ -130,7 +160,8 @@ and the TUI/web tool integration.
 - `offcode learn add` and `scripts/training/`: reviewed datasets, LoRA training,
   periodic retraining and model deployment (`offcode learn deploy`).
 - `scripts/eval/run.py`: isolated ten-task campaigns for five tiers or LM Studio.
-- Windows build with native CPU/memory monitoring and a Linux/Windows CI matrix.
+- Windows build with native CPU/memory monitoring, a Linux/Windows CI matrix,
+  and a GUI/cmd/PowerShell installer (see "Windows installer" above).
 
 Run `offcode doctor -extensions` to inspect optional dependencies. These
 capabilities do not install or bundle large models and services. Setup and
