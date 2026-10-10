@@ -4,20 +4,35 @@ A Claude-Code-like agentic coding CLI built exclusively for local models —
 Ollama, LM Studio, and anything else that speaks the OpenAI-compatible
 `chat/completions` API. Cross-platform: Linux and Windows.
 
-Design rationale and what's deliberately out of scope for v0.1 live in
+Design rationale and what's deliberately out of scope live in
 [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Download
+
+Grab the latest build from [GitHub Releases](https://github.com/Johnny008-creator/offcode/releases/latest):
+Linux binary, Windows `.exe`, or the Windows installer (GUI/cmd/PowerShell —
+see "Windows installer" below). Or build from source, see "Build".
 
 ## Status
 
-v0.1: a terminal UI (Bubble Tea) with streaming responses, a live activity
+v0.2: a terminal UI (Bubble Tea) with streaming responses, a live activity
 indicator (thinking / generating / using tool: X), a status bar (elapsed
-time, context usage, tokens/sec), eight filesystem/shell/web tools (read,
-write, edit, bash, grep, glob, web_search, fetch_url), three permission
-modes, Ollama (native API) and LM Studio (OpenAI-compatible) backends, and
-a fallback parser for models that emit tool calls as plain-text JSON
-instead of using the structured `tool_calls` field (confirmed necessary in
-practice against `qwen2.5-coder:7b`). Includes context compaction, opt-in
-session resume, persistent memory, and a web UI (`offcode web`).
+time, context usage, tokens/sec), filesystem/shell/web tools (read, write,
+edit, bash, grep, glob, web_search, fetch_url, browser_text), three
+permission modes, Ollama (native API) and LM Studio (OpenAI-compatible)
+backends, and a fallback parser for models that emit tool calls as
+plain-text JSON instead of using the structured `tool_calls` field
+(confirmed necessary in practice against `qwen2.5-coder:7b`). Includes
+context compaction, opt-in session resume, persistent memory, a web UI
+(`offcode web`), MCP client support, browser automation, multi-agent
+subagents, vision, hooks, a 20-topic on-demand skills library, semantic
+codebase search, Windows cross-build with native CPU/memory monitoring, a
+Windows GUI/cmd/PowerShell installer, and local extensions for document
+export, generative media, and voice (see "Extended capabilities").
+Five real bugs found through live multi-tier Ollama testing — silently
+truncated context, a swallowed Ollama tool-call-template error, an
+unconfigured-tool trap, a silently-empty file write, and a silently-ended
+turn — are fixed and documented in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 The model plans non-trivial tasks up front and tracks progress (a
 persistent checklist panel above the transcript), can ask you to pick
@@ -89,7 +104,7 @@ Three ways to install on Windows, all installing to
   normal wizard window, or run it unattended straight from `cmd`/a script
   with Inno Setup's own silent switches:
   ```bat
-  offcode-setup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES
+  offcode-setup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES
   ```
 - **Batch installer** — `scripts/windows/install.bat`, plain `cmd`, no
   PowerShell: downloads the latest release (via `certutil`) or installs an
