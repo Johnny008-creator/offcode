@@ -31,7 +31,7 @@ import (
 // (started by Submit/SubmitDisplay).
 func (s *Session) runTurn(ctx context.Context) {
 	for {
-		msg, usage, turnStart, err := s.streamOnce(ctx)
+		msg, usage, turnStart, err := s.streamOnceWithParseRetry(ctx)
 		if err != nil {
 			s.finishRun(err)
 			return
@@ -111,6 +111,26 @@ func (s *Session) incompletePlanSteps() []string {
 		}
 	}
 	return out
+}
+
+// maxToolCallParseRetries bounds how many extra attempts streamOnceWithParseRetry
+// makes after Ollama fails to parse a model's own tool-call output (see
+// backend.IsMalformedToolCallResponse) — a different sampling run of the
+// same prompt has a real chance of producing well-formed tags.
+const maxToolCallParseRetries = 2
+
+// streamOnceWithParseRetry wraps streamOnce, retrying up to
+// maxToolCallParseRetries times when the only thing that failed was
+// Ollama's own tool-call template parsing — any other error (backend
+// unreachable, model missing, context canceled) passes through on the
+// first attempt, unchanged.
+func (s *Session) streamOnceWithParseRetry(ctx context.Context) (backend.Message, backend.Usage, time.Time, error) {
+	for attempt := 0; ; attempt++ {
+		msg, usage, turnStart, err := s.streamOnce(ctx)
+		if err == nil || attempt >= maxToolCallParseRetries || !backend.IsMalformedToolCallResponse(err) {
+			return msg, usage, turnStart, err
+		}
+	}
 }
 
 // streamOnce runs exactly one model request to completion (or error),

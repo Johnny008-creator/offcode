@@ -1,6 +1,9 @@
 package backend
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type Message struct {
 	Role       string     `json:"role"`
@@ -73,6 +76,18 @@ type chatResponse struct {
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+// IsMalformedToolCallResponse reports whether err is Ollama's native /api/chat
+// failing to parse a model's own tool-call output against its chat
+// template — observed live as "XML syntax error on line N: ..." from a
+// model (e.g. qwen3.5:4b) whose generated <function>/<parameter> tags came
+// out unbalanced. The model produced a real response; only Ollama's
+// server-side extraction of it failed, so a fresh attempt (different
+// sampling) has a real chance of succeeding — unlike a backend-down or
+// model-not-found error, which a retry can't fix and shouldn't swallow.
+func IsMalformedToolCallResponse(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "XML syntax error")
 }
 
 type streamChunk struct {

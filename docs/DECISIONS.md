@@ -522,3 +522,26 @@ which is safe to assume present in a coding session. Covered by
 `TestExtensionGatingOffersConfiguredTools`, which fake PATH/HOME rather
 than depending on what happens to be installed on the machine running
 the test.
+
+**Ollama's own tool-call template parser can fail on a model's malformed
+tags, killing the whole turn.** Same campaign, Offcode Ember
+(qwen3.5:4b): three different tasks (a plan-and-write task, the
+ask-user-clarification task, and the web-search task) all ended with
+`backend error: XML syntax error on line N: ...` — Ollama's native
+`/api/chat` extracts `<function>`/`<parameter>`-style tool-call tags
+out of the model's raw generation for this template, and when Ember's
+tags came out unbalanced, Ollama returned a hard error instead of a
+recoverable one. offcode treated any such error as fatal
+(`finishRun`/`EventError` ended the turn immediately), even though the
+model produced a real response — only Ollama's server-side extraction
+of it failed, and a different sampling run of the same prompt has a
+real chance of producing well-formed tags. Fixed with a bounded retry:
+`backend.IsMalformedToolCallResponse` recognizes this specific error
+signature, and `streamOnceWithParseRetry`
+(`internal/webengine/loop.go`) / the mirrored `EventError` handling in
+`internal/tui/model.go` retry up to `maxToolCallParseRetries` (2) times
+before giving up — any other error (backend down, model missing,
+canceled) still fails on the first attempt, unchanged. Covered by
+`TestStreamOnceWithParseRetry*` in `internal/webengine` (fake HTTP
+transport returning the error then a clean response) and
+`TestIsMalformedToolCallResponse` in `internal/backend`.

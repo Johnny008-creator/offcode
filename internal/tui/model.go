@@ -34,6 +34,12 @@ const maxPlanNudges = 2
 
 const AppVersion = "0.1.0"
 
+// maxToolCallParseRetries bounds how many extra attempts a turn gets after
+// Ollama fails to parse a model's own tool-call output against its chat
+// template — see backend.IsMalformedToolCallResponse and the mirrored
+// retry in internal/webengine/loop.go.
+const maxToolCallParseRetries = 2
+
 type phase int
 
 const (
@@ -95,12 +101,13 @@ type Model struct {
 	planNudges             int
 	actionsSincePlanUpdate int
 
-	pendingToolCalls []backend.ToolCall
-	pendingConfirm   *backend.ToolCall
-	toolIterations   int
-	readPaths        map[string]bool
-	lastFailedCall   string
-	repeatFailCount  int
+	pendingToolCalls     []backend.ToolCall
+	pendingConfirm       *backend.ToolCall
+	toolIterations       int
+	readPaths            map[string]bool
+	lastFailedCall       string
+	repeatFailCount      int
+	toolCallParseRetries int
 
 	streamEvents <-chan backend.StreamEvent
 	cancelGen    context.CancelFunc
@@ -650,6 +657,7 @@ func (m Model) submitUserMessageDisplay(display, actual string) (tea.Model, tea.
 	m.messages = append(m.messages, backend.Message{Role: "user", Content: actual})
 	m.toolIterations = 0
 	m.planNudges = 0
+	m.toolCallParseRetries = 0
 	m.promptStart = time.Now()
 	return m.startGeneration()
 }
@@ -709,6 +717,17 @@ func (m Model) handleStreamEvent(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 		return m, waitForStream(m.streamEvents)
 
 	case backend.EventError:
+		// Ollama failed to parse the model's own tool-call tags against its
+		// chat template (observed live with qwen3.5:4b) — the model did
+		// produce a response, only the server-side extraction of it
+		// failed, so a fresh attempt has a real chance of succeeding. See
+		// backend.IsMalformedToolCallResponse and the mirrored retry in
+		// internal/webengine/loop.go.
+		if backend.IsMalformedToolCallResponse(ev.Err) && m.toolCallParseRetries < maxToolCallParseRetries {
+			m.toolCallParseRetries++
+			return m.startGeneration()
+		}
+		m.toolCallParseRetries = 0
 		m.state = stateIdle
 		m.activity = ""
 		if !m.promptStart.IsZero() {
@@ -751,6 +770,7 @@ func (m *Model) setStreamingReasoningBlock() {
 }
 
 func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
+	m.toolCallParseRetries = 0
 	if ev.Usage.CompletionTokens > 0 {
 		switch {
 		case ev.Usage.EvalDurationNs > 0:
