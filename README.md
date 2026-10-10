@@ -122,6 +122,14 @@ Three ways to install on Windows, all installing to
   ```
   or `.\install.ps1 -LocalExe ..\..\bin\offcode.exe`; `-Uninstall` to remove.
 
+All three work equally from `cmd` or PowerShell once installed — they
+write the same `HKCU\Environment\Path` registry entry Windows itself
+exposes to every shell — and all three also broadcast `WM_SETTINGCHANGE`
+so a **new** terminal opened right after (Start Menu, Win+R) picks up the
+PATH immediately. None of them can refresh a terminal that was already
+open before you ran the installer — Windows consoles only read their
+environment once, at launch — so open a fresh one either way.
+
 Tagged releases (`.github/workflows/release.yml`) build `offcode.exe` and
 `offcode-setup-<version>.exe` on `windows-latest` (Inno Setup ships
 preinstalled on that runner image) and attach both, plus the Linux binary,

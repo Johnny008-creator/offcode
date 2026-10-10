@@ -45,6 +45,26 @@ $ErrorActionPreference = 'Stop'
 $InstallDir = Join-Path $env:LocalAppData 'Programs\offcode'
 $ExePath = Join-Path $InstallDir 'offcode.exe'
 
+function Broadcast-EnvironmentChange() {
+    # Tells Explorer to re-read the environment, so a terminal opened from
+    # the Start Menu (or Win+R) right after this script runs sees the new
+    # PATH immediately. Does NOT refresh an already-open cmd/PowerShell
+    # window — consoles only read their environment once, at launch, no
+    # matter what. Best-effort: a failure here just means the user needs a
+    # fresh window instead of it being picked up a few seconds sooner.
+    try {
+        $sig = '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
+        $type = Add-Type -MemberDefinition $sig -Name NativeMethods -Namespace OffcodeInstaller -PassThru
+        $result = [UIntPtr]::Zero
+        $HWND_BROADCAST = [IntPtr]0xffff
+        $WM_SETTINGCHANGE = 0x1A
+        $SMTO_ABORTIFHUNG = 0x2
+        $type::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Environment', $SMTO_ABORTIFHUNG, 5000, [ref]$result) | Out-Null
+    } catch {
+        # Ignored — see comment above.
+    }
+}
+
 function Add-UserPath([string]$Dir) {
     $current = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not $current) { $current = '' }
@@ -53,6 +73,7 @@ function Add-UserPath([string]$Dir) {
     $updated = if ($current -and -not $current.EndsWith(';')) { "$current;$Dir" } else { "$current$Dir" }
     [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
     $env:Path = "$env:Path;$Dir"
+    Broadcast-EnvironmentChange
 }
 
 function Remove-UserPath([string]$Dir) {
@@ -60,6 +81,7 @@ function Remove-UserPath([string]$Dir) {
     if (-not $current) { return }
     $parts = $current.Split(';') | Where-Object { $_ -ne '' -and $_ -ne $Dir }
     [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
+    Broadcast-EnvironmentChange
 }
 
 if ($Uninstall) {

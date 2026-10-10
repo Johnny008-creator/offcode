@@ -50,6 +50,20 @@ if defined USERPATH (
 ) else (
     reg add "HKCU\Environment" /v Path /t REG_EXPAND_SZ /d "%INSTALL_DIR%" /f >nul
 )
+call :broadcastenv
+goto :eof
+
+rem Tells Explorer to re-read the environment (WM_SETTINGCHANGE), so a
+rem terminal opened from the Start Menu right after this script runs sees
+rem the new PATH immediately. Does NOT refresh an already-open cmd/
+rem PowerShell window — consoles only read their environment once, at
+rem launch, no matter what; that's why "open a new terminal" below still
+rem matters regardless. Needs powershell.exe (present by default since
+rem Windows 7); silently skipped if it's missing.
+:broadcastenv
+where powershell >nul 2>nul
+if errorlevel 1 goto :eof
+powershell -NoProfile -Command "$sig='[DllImport(\"user32.dll\",SetLastError=true,CharSet=CharSet.Auto)]public static extern IntPtr SendMessageTimeout(IntPtr hWnd,uint Msg,UIntPtr wParam,string lParam,uint fuFlags,uint uTimeout,out UIntPtr lpdwResult);'; $t=Add-Type -MemberDefinition $sig -Name NativeMethods -Namespace OffcodeInstaller -PassThru; $r=[UIntPtr]::Zero; $t::SendMessageTimeout([IntPtr]0xffff,0x1A,[UIntPtr]::Zero,'Environment',2,5000,[ref]$r) | Out-Null" >nul 2>nul
 goto :eof
 
 :uninstall
@@ -62,5 +76,6 @@ if defined USERPATH (
     set "NEWPATH=!NEWPATH:~1,-1!"
     reg add "HKCU\Environment" /v Path /t REG_EXPAND_SZ /d "!NEWPATH!" /f >nul
 )
+call :broadcastenv
 echo offcode uninstalled. Open a new terminal for the PATH change to take effect.
 goto :eof

@@ -1,0 +1,10 @@
+offcode is installed.
+
+Open a NEW Command Prompt or PowerShell window and run:
+
+    offcode
+
+An already-open terminal won't see the updated PATH — Windows consoles
+only read their environment once, at launch, no matter what this
+installer does. A new window (from the Start Menu, or typing cmd/
+powershell in Run) will have it right away.

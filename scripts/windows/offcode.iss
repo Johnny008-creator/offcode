@@ -44,6 +44,18 @@ OutputBaseFilename=offcode-setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+; Tells Inno Setup this installer changes PATH, so it broadcasts
+; WM_SETTINGCHANGE itself after install/uninstall — Explorer and anything
+; launched from it afterward (a new Start Menu terminal, say) picks up the
+; new PATH immediately. Does NOT refresh an already-open cmd/PowerShell
+; window — Windows consoles never re-read their environment after launch,
+; broadcast or not, so the finish page below still tells the user to open
+; a new one.
+ChangesEnvironment=yes
+; Shown as a scrollable page right before the Finish button — the one
+; thing worth telling the user explicitly, since nothing else on the
+; wizard says it.
+InfoAfterFile=postinstall-note.txt
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ; Older identifier ("x64" rather than "x64compatible") on purpose — works
 ; across a wider range of Inno Setup versions, including whatever ships
