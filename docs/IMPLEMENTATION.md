@@ -51,17 +51,34 @@ or automatic model promotion is installed.
 - ComfyUI queue/history/download and failure/cancellation paths: tested with
   an in-memory HTTP transport, not a running diffusion model.
 - OpenAI-compatible streamed tool-call assembly: tested offline, not LM Studio.
+- **Real image generation (2026-10-10).** Installed the AUR `comfyui`
+  package (CPU-only PyTorch — this machine's GPU has no ROCm support),
+  the fp16 SD1.5 checkpoint, and `~/.offcode/media.json` from
+  `examples/media/`; `offcode tool generate_image '{"prompt":"a small
+  red cube on a white background","path":"/tmp/offcode-test-image.png"}'`
+  returned a real, valid 512x512 PNG matching the prompt. See
+  docs/EXTENSIONS.md's "Images, video and music" section for the setup
+  (including a `--cpu` systemd drop-in needed to stop ComfyUI crashing
+  on a GPU-less torch install). Video/music remain unconfigured — no
+  workflow files for those kinds.
+- **Live 5-tier Ollama campaign (2026-10-10), in progress.** Ran
+  `scripts/eval/run.py` against this machine's real Ollama (AMD RX
+  6500 XT, Vulkan backend) across all five tiers. Found and fixed three
+  real bugs this way (see docs/DECISIONS.md): extension tools offered
+  without their dependencies configured, Ollama's native tool-call
+  template parser erroring out the whole turn on malformed tags instead
+  of being retried, and `write` silently producing an empty file when a
+  tool call's `content` argument arrived under a corrupted JSON key.
 
 ## Still blocked / not runtime-verified
 
-- [ ] Live Ollama tier campaign and semantic ranking. Socket creation is denied
-  (`Operation not permitted`), including localhost. The evaluation preflight
-  wrote a blocked report at `/tmp/offcode-eval-20261009-ollama/report.json`.
-- [ ] Live LM Studio campaign. Same socket restriction; blocked report at
-  `/tmp/offcode-eval-20261009-lmstudio/report.json`. A real installed model tag
-  must replace the placeholder used for the connectivity-only probe.
-- [ ] Real image/video/music generation. No `~/.offcode/media.json` is configured;
-  installed workflows/checkpoints and a reachable ComfyUI server are required.
+- [ ] Live LM Studio campaign. Never exercised against a real LM Studio
+  instance — every live model test so far has been Ollama.
+- [ ] Live semantic ranking (`internal/semsearch`). The 2026-10-09 socket
+  restriction that blocked this no longer applies in a session with real
+  network access (confirmed 2026-10-10 — Ollama, SearXNG and ComfyUI are
+  all reachable here), but `semantic_search` specifically hasn't been
+  exercised against a real embedding model yet, just offline/mocked.
 - [ ] Real speech transcription. FFmpeg is installed, but `whisper-cli` and
   `OFFCODE_WHISPER_MODEL` are missing.
 - [ ] Actual PDF/DOCX conversions. Pandoc and the default PDF engine XeLaTeX

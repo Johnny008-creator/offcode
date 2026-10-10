@@ -52,6 +52,31 @@ cp examples/media/media.json ~/.offcode/
 offcode tool generate_image '{"prompt":"A quiet mountain lake at dawn","path":"lake.png"}'
 ```
 
+Live-tested 2026-10-10 on the AUR `comfyui` package (`/opt/comfyui`, systemd
+service) with the fp16 `v1-5-pruned-emaonly-fp16.safetensors` checkpoint
+(~2.1GB — the full fp32 version is ~4.3GB, fine on more free disk) and
+CPU-only PyTorch, `COMFYUI_GPU=cpu` at install time: a real 512x512 PNG came
+back from `generate_image`. CPU-only because this machine's GPU (RX 6500 XT
+/ Navi 24, gfx1034) has no official ROCm support — the same reason Ollama
+runs it via Vulkan rather than ROCm. If your GPU *is* ROCm/CUDA-supported,
+the package's auto-detection should pick that up at install time instead
+(`COMFYUI_GPU=rocm`/`cuda`), but budget real disk space: the ROCm torch
+wheel alone is ~6.2GB.
+
+One gotcha regardless of backend: this AUR package's systemd service
+(`comfyui.service`) doesn't pass a GPU-selection flag, and ComfyUI's own
+startup code calls `torch.cuda.current_device()` unconditionally — on a
+CPU-only torch install (no CUDA, no ROCm) that crashes with "Found no
+NVIDIA driver" instead of falling back cleanly. Fix with a systemd
+drop-in rather than editing the package-owned unit file:
+```sh
+sudo systemctl edit comfyui
+# [Service]
+# ExecStart=
+# ExecStart=/usr/bin/comfyui --listen 127.0.0.1 --cpu
+sudo systemctl restart comfyui
+```
+
 Add `video` and `music` entries to `workflows` using API exports which already
 work in your ComfyUI installation. Each entry has the same shape:
 
