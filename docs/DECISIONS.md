@@ -565,3 +565,37 @@ retry (`rawKeys` lists what it actually sent). A single-key
 still succeeds and creates an empty file, since that's a legitimate,
 deliberate request. Covered by
 `TestWriteRejectsCorruptedContentKey`/`TestWriteAllowsDeliberateEmptyFile`.
+
+**offcode never told Ollama how much context to actually use — Ollama's
+own VRAM-based guess silently truncated real turns.** Live-tested
+2026-10-10, auto mode (not the eval harness — full bash approval, no
+allowlist restriction): Offcode Anvil (gemma4:12b), asked the same
+"suggest a feature" question that looked stuck under eval, explored the
+project fine (`ls -R` succeeded, no denial this time) but the turn
+still ended idle with a dangling reasoning block and no final answer —
+same symptom as the eval-harness run, so the earlier "Anvil loops on
+denied bash" theory was wrong. Ollama's own log showed why:
+`stop processing: n_tokens = 4095, truncated = 1`. `StreamChatNative`
+(`internal/backend/native.go`) never set `options.num_ctx` in the
+request, so Ollama fell back to its own VRAM-based heuristic — 4096
+tokens on this 8GB card — regardless of the model's actual supported
+context (gemma4:12b advertises up to 262144). offcode's own system
+prompt plus ~20 tool schemas is already around 2K tokens before the
+conversation even starts, so a reasoning-heavy turn had nowhere near
+enough room. The UI's context-usage indicator made this worse, not
+better: it's driven by `Client.ContextLength` (the model's advertised
+max), so it kept showing lots of headroom while Ollama was silently
+discarding tokens under the hood. Fixed by always sending an explicit
+`num_ctx` (`internal/backend/native.go`'s `numCtxOption`) — default
+8192 (a deliberate, modest bump over Ollama's 4096, chosen to stay
+safe on small-VRAM hardware rather than requesting a model's full
+advertised context and risking a load failure), overridable via
+`OFFCODE_NUM_CTX`. Re-tested the identical live scenario after the fix:
+Ollama's log confirmed `n_ctx_slot = 8192` and `truncated = 0` — the
+retry still didn't get a final answer, but for an unrelated reason (an
+AMD GPU compute-ring timeout mid-generation, `amdgpu ... ring comp_1.3.0
+timeout` in `dmesg`, after ~2.5 hours of continuous heavy GPU use this
+session — the driver reset and recovered fine; a hardware/driver
+limitation of this specific low-end card under sustained load, not an
+offcode bug). Covered by `TestStreamChatNativeSetsNumCtx` and
+`TestStreamChatNativeNumCtxEnvOverride` in `internal/backend`.

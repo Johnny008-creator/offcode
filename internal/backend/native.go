@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -59,6 +61,32 @@ type nativeChatRequest struct {
 	Tools    []Tool          `json:"tools,omitempty"`
 	Stream   bool            `json:"stream"`
 	Think    any             `json:"think,omitempty"`
+	Options  *nativeOptions  `json:"options,omitempty"`
+}
+
+type nativeOptions struct {
+	NumCtx int `json:"num_ctx,omitempty"`
+}
+
+// defaultNumCtx overrides Ollama's own VRAM-based auto-sizing, which can be
+// far too small for a tool-calling agent — observed live on an 8GB card:
+// Ollama picked 4096 tokens by default, and offcode's own system prompt
+// (tool schemas alone) is already ~2K tokens, so a reasoning-heavy turn
+// (gemma4:12b/Anvil) silently hit "truncated = 1" mid-response with no
+// error surfaced — the turn just ended with a dangling thinking trace and
+// no answer. 8192 is a deliberately modest bump (not the model's full
+// advertised context_length, which can be 256K+) to stay safe on small-VRAM
+// hardware; override with OFFCODE_NUM_CTX for a different tradeoff.
+const defaultNumCtx = 8192
+
+func numCtxOption() *nativeOptions {
+	n := defaultNumCtx
+	if v := os.Getenv("OFFCODE_NUM_CTX"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	return &nativeOptions{NumCtx: n}
 }
 
 type nativeStreamChunk struct {
@@ -111,6 +139,7 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 			Tools:    req.Tools,
 			Stream:   true,
 			Think:    think.nativeValue(),
+			Options:  numCtxOption(),
 		}
 
 		body, err := json.Marshal(nreq)
