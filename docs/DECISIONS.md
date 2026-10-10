@@ -497,3 +497,28 @@ isolated unit tests or a single successful call isn't fully verified
 until it's exercised across *multiple turns* of the real agent loop —
 the failure in both cases only showed up one step after the tool itself
 appeared to succeed.
+
+**Unconfigured extension tools were offered to every model anyway.**
+First live campaign against the real 5-tier Ollama setup (2026-10-10):
+Offcode Spark (qwen3:1.7b), asked for a single HTML/CSS note-taking
+page, called `generate_image` for a decorative mockup instead of just
+writing the file. ComfyUI wasn't configured on this machine, so the
+call was denied, Spark then poked at `browser_text` on a file that
+didn't exist yet, and the turn ended without `notes.html` ever being
+written. `extensionDefinitions()` (`internal/tools/extensions.go`) was
+unconditionally listing `generate_image`/`generate_video`/
+`generate_music`/`export_document`/`transcribe_audio`/
+`synthesize_speech` regardless of whether ComfyUI/Pandoc/whisper-cli
+were actually present — the same mistake vision-gating
+(`view_image`/`preview_page`, only offered when `SupportsVision` says
+yes) had already solved for a different tool. Fixed by adding
+`extensionAvailability()`, checked once per tool-list build: each
+gated tool only appears when its real dependency is there (binary on
+PATH, `~/.offcode/media.json` configured with that specific kind's
+workflow file present, `OFFCODE_WHISPER_MODEL` pointing at a real
+file). `repo_map`/`git_summary` stay ungated — they only need `git`,
+which is safe to assume present in a coding session. Covered by
+`TestExtensionGatingHidesUnconfiguredTools` /
+`TestExtensionGatingOffersConfiguredTools`, which fake PATH/HOME rather
+than depending on what happens to be installed on the machine running
+the test.

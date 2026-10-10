@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Johnny008-creator/offcode/internal/backend"
 )
 
 func TestProduceFileDoesNotOverwriteOrPublishFailure(t *testing.T) {
@@ -51,6 +53,71 @@ func TestExtensionCancellation(t *testing.T) {
 	cancel()
 	if _, err := DispatchContext(ctx, "synthesize_speech", `{"text":"hello","path":"out.wav"}`); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancellation, got %v", err)
+	}
+}
+
+func toolNames(defs []backend.Tool) map[string]bool {
+	names := make(map[string]bool, len(defs))
+	for _, d := range defs {
+		names[d.Function.Name] = true
+	}
+	return names
+}
+
+func TestExtensionGatingHidesUnconfiguredTools(t *testing.T) {
+	emptyPath := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("PATH", emptyPath)
+	t.Setenv("HOME", home)
+	t.Setenv("OFFCODE_WHISPER_MODEL", "")
+
+	names := toolNames(Definitions())
+	for _, gated := range []string{"generate_image", "generate_video", "generate_music", "export_document", "transcribe_audio", "synthesize_speech"} {
+		if names[gated] {
+			t.Errorf("%s offered with no dependency installed/configured", gated)
+		}
+	}
+	for _, always := range []string{"read", "write", "repo_map", "git_summary"} {
+		if !names[always] {
+			t.Errorf("%s missing", always)
+		}
+	}
+}
+
+func TestExtensionGatingOffersConfiguredTools(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{"pandoc", "espeak-ng"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	offcodeDir := filepath.Join(home, ".offcode")
+	if err := os.MkdirAll(offcodeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	workflow := filepath.Join(offcodeDir, "image.json")
+	if err := os.WriteFile(workflow, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mediaConfig := `{"workflows":{"image":{"file":"image.json"}}}`
+	if err := os.WriteFile(filepath.Join(offcodeDir, "media.json"), []byte(mediaConfig), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	names := toolNames(Definitions())
+	for _, available := range []string{"export_document", "synthesize_speech", "generate_image"} {
+		if !names[available] {
+			t.Errorf("%s not offered despite dependency present", available)
+		}
+	}
+	for _, unavailable := range []string{"generate_video", "generate_music", "transcribe_audio"} {
+		if names[unavailable] {
+			t.Errorf("%s offered without its workflow/model configured", unavailable)
+		}
 	}
 }
 

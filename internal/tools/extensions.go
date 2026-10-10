@@ -14,21 +14,64 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/media"
 )
 
+// extensionAvailability reports which optional tools actually have their
+// local dependencies in place. A model offered a tool it has no way to use
+// — ComfyUI unconfigured, Pandoc not installed — tends to call it anyway
+// and burn a turn on a guaranteed failure instead of just using `write`;
+// gating these the same way view_image/preview_page are gated on real
+// vision support (see internal/webengine/prompts.go) avoids that.
+func extensionAvailability() map[string]bool {
+	avail := make(map[string]bool)
+	if _, err := exec.LookPath("pandoc"); err == nil {
+		avail["export_document"] = true
+	}
+	if _, err := exec.LookPath("espeak-ng"); err == nil {
+		avail["synthesize_speech"] = true
+	}
+	if _, errF := exec.LookPath("ffmpeg"); errF == nil {
+		if _, errW := exec.LookPath("whisper-cli"); errW == nil {
+			if model := os.Getenv("OFFCODE_WHISPER_MODEL"); model != "" {
+				if info, err := os.Stat(model); err == nil && !info.IsDir() {
+					avail["transcribe_audio"] = true
+				}
+			}
+		}
+	}
+	if cfg, err := media.Load(); err == nil {
+		for _, kind := range []string{"image", "video", "music"} {
+			if wf, ok := cfg.Workflows[kind]; ok {
+				if info, err := os.Stat(wf.File); err == nil && !info.IsDir() {
+					avail["generate_"+kind] = true
+				}
+			}
+		}
+	}
+	return avail
+}
+
 func extensionDefinitions() []backend.Tool {
+	avail := extensionAvailability()
 	var defs []backend.Tool
 	for _, kind := range []string{"image", "video", "music"} {
+		if !avail["generate_"+kind] {
+			continue
+		}
 		defs = append(defs, backend.Tool{Type: "function", Function: backend.FunctionDef{Name: "generate_" + kind, Description: "Generate " + kind + " using a configured local ComfyUI workflow. Requires ~/.offcode/media.json. Output path must be new and have the workflow's output extension.", Parameters: schema(`{"prompt":{"type":"string"},"path":{"type":"string"}}`, "prompt", "path")}})
 	}
 	for _, d := range []struct {
 		name, description, props string
 		required                 []string
+		gated                    bool
 	}{
-		{"export_document", "Convert a Markdown file to PDF or DOCX using local Pandoc (PDF also requires a PDF engine). Output must be new.", `{"source":{"type":"string"},"path":{"type":"string"}}`, []string{"source", "path"}},
-		{"transcribe_audio", "Transcribe an audio file locally using whisper-cli and OFFCODE_WHISPER_MODEL; ffmpeg converts to mono WAV first.", `{"path":{"type":"string"},"language":{"type":"string","description":"Language code; defaults to auto"}}`, []string{"path"}},
-		{"synthesize_speech", "Convert text to a WAV file using local espeak-ng. Output must be new. Voice defaults to en; cs supports Czech.", `{"text":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"}}`, []string{"text", "path"}},
-		{"repo_map", "Summarize project structure and Go symbols without an embedding model.", `{"path":{"type":"string"}}`, nil},
-		{"git_summary", "Show the current branch, status and staged/unstaged diff summary for preparing a review or PR.", `{"path":{"type":"string"}}`, nil},
+		{"export_document", "Convert a Markdown file to PDF or DOCX using local Pandoc (PDF also requires a PDF engine). Output must be new.", `{"source":{"type":"string"},"path":{"type":"string"}}`, []string{"source", "path"}, true},
+		{"transcribe_audio", "Transcribe an audio file locally using whisper-cli and OFFCODE_WHISPER_MODEL; ffmpeg converts to mono WAV first.", `{"path":{"type":"string"},"language":{"type":"string","description":"Language code; defaults to auto"}}`, []string{"path"}, true},
+		{"synthesize_speech", "Convert text to a WAV file using local espeak-ng. Output must be new. Voice defaults to en; cs supports Czech.", `{"text":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"}}`, []string{"text", "path"}, true},
+		{"repo_map", "Summarize project structure and Go symbols without an embedding model.", `{"path":{"type":"string"}}`, nil, false},
+		{"git_summary", "Show the current branch, status and staged/unstaged diff summary for preparing a review or PR.", `{"path":{"type":"string"}}`, nil, false},
 	} {
+		if d.gated && !avail[d.name] {
+			continue
+		}
 		defs = append(defs, backend.Tool{Type: "function", Function: backend.FunctionDef{Name: d.name, Description: d.description, Parameters: schema(d.props, d.required...)}})
 	}
 	return defs
