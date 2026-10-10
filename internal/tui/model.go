@@ -32,7 +32,7 @@ const maxToolIterationsPerTurn = 25
 
 const maxPlanNudges = 2
 
-const AppVersion = "0.2.0"
+const AppVersion = "0.2.1"
 
 // maxToolCallParseRetries bounds how many extra attempts a turn gets after
 // Ollama fails to parse a model's own tool-call output against its chat
