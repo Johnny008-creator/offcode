@@ -98,6 +98,7 @@ func runChat(args []string) {
 	}
 	cfg.Resume = *resumeFlag
 
+	ensureOllamaRunning(cfg)
 	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "offcode:", err)
 		os.Exit(1)
@@ -140,6 +141,7 @@ func runWeb(args []string) {
 	}
 	cfg.Resume = *resumeFlag
 
+	ensureOllamaRunning(cfg)
 	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
 	if err := webserver.Serve(addr, cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "offcode web:", err)

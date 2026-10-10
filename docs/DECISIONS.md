@@ -624,3 +624,35 @@ path. Covered by `TestRunTurnExplainsExhaustedPlanNudges`
 (`internal/webengine`), which fakes a model that always returns empty
 content and asserts exactly one explanatory block appears after the
 nudge budget is spent.
+
+**offcode never tried to start Ollama itself, and "connection refused" is
+not a self-explanatory error for most users.** User feedback, 2026-10-10
+(new session, Ollama had been manually stopped since the prior session —
+no `ollama serve` was running): "nějak se ollama nespustí když zapnu
+offcode" (Ollama somehow doesn't start when I launch offcode) — the
+expectation was that launching offcode would just work, the same way the
+Ollama desktop app or its systemd service would normally keep it running
+in the background. On this dev machine specifically, `ollama.service` is
+installed but ships **disabled** (confirmed via `systemctl status
+ollama` — Arch doesn't enable it by default), so nothing auto-starts it
+between sessions; a user who manages Ollama manually (or whose systemd
+unit isn't enabled) hit a raw Go `connection refused` error on every
+tool call instead. Fixed with `ensureOllamaRunning`
+(`cmd/offcode/ollamaboot.go`), called from both `runChat` and `runWeb`
+right after config resolution: if the backend is Ollama and nothing
+answers at the configured URL, best-effort `exec.LookPath("ollama")` and
+spawn `ollama serve` detached (own session via `Setsid` on
+Linux/macOS, `CREATE_NEW_PROCESS_GROUP` on Windows — split across
+`ollamaboot_unix.go`/`ollamaboot_windows.go` the same way
+`internal/sysmon` already does), then poll for up to 10s before
+continuing regardless. Live-verified end to end: killed Ollama, launched
+`offcode web`, watched it print "Ollama wasn't running — starting it
+now..." and become reachable within the poll window; then confirmed
+`Setsid` actually matters by sending SIGINT to offcode and checking
+`ollama serve` was still running afterward (a plain `cmd.Start()`
+without detaching would have taken it down too, since a terminal Ctrl+C
+delivers SIGINT to the whole foreground process group). Does nothing
+silently when the binary isn't on PATH, the backend is LM Studio, or
+Ollama is already reachable — same connection-refused error as before
+surfaces if auto-start doesn't help. Covered by
+`cmd/offcode/ollamaboot_test.go`.

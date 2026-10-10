@@ -64,7 +64,13 @@ go build -o bin/offcode ./cmd/offcode
 ## Run
 
 Requires Ollama or LM Studio running locally with a tool-calling-capable
-model loaded.
+model loaded. For the Ollama backend (the default), offcode auto-starts
+`ollama serve` if it isn't already running and the `ollama` binary is on
+PATH — it waits up to 10s for it to come up, then continues either way;
+if that doesn't help or `ollama` isn't on PATH, start it yourself
+(`ollama serve`, or `systemctl start ollama` if installed as a service —
+on Arch it ships disabled by default). LM Studio must always be started
+manually first; offcode doesn't attempt to launch it.
 
 ```sh
 ./bin/offcode
