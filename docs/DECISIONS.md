@@ -545,3 +545,23 @@ canceled) still fails on the first attempt, unchanged. Covered by
 `TestStreamOnceWithParseRetry*` in `internal/webengine` (fake HTTP
 transport returning the error then a clean response) and
 `TestIsMalformedToolCallResponse` in `internal/backend`.
+
+**The same template fragility can corrupt an argument key instead of
+erroring outright, and `write` silently wrote an empty file.** One
+Ember (qwen3.5:4b) task never hit the XML error at all but still
+failed: its `write` call arrived as
+`{"path":"...","":"content>\n<!DOCTYPE html>..."}` — a `<parameter=
+content>`-style tag the template failed to extract a name from, so the
+value landed under an empty-string key instead of `"content"`. Before
+this fix, `tools.Dispatch("write", ...)` only checked `path` was
+non-empty and happily wrote `Content` as its Go zero value (`""`),
+producing a real file on disk with zero bytes and no error — silent
+data loss the model and user would only notice much later. Fixed by
+unmarshaling into a `map[string]json.RawMessage` first: a missing
+`"content"` key alongside any *other*, unexpected key is now treated
+as a corrupted call and rejected with a message asking the model to
+retry (`rawKeys` lists what it actually sent). A single-key
+`{"path":"x.txt"}` call — no stray key, content genuinely omitted —
+still succeeds and creates an empty file, since that's a legitimate,
+deliberate request. Covered by
+`TestWriteRejectsCorruptedContentKey`/`TestWriteAllowsDeliberateEmptyFile`.

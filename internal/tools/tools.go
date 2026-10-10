@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 )
@@ -14,6 +15,15 @@ func schema(props string, required ...string) json.RawMessage {
 	}
 	req, _ := json.Marshal(required)
 	return json.RawMessage(fmt.Sprintf(`{"type":"object","properties":%s,"required":%s}`, props, req))
+}
+
+func rawKeys(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func Definitions() []backend.Tool {
@@ -85,6 +95,10 @@ func DispatchContext(ctx context.Context, name string, argsJSON string) (string,
 		}
 		return Read(a.Path)
 	case "write":
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+			return "", err
+		}
 		var a struct {
 			Path    string `json:"path"`
 			Content string `json:"content"`
@@ -94,6 +108,14 @@ func DispatchContext(ctx context.Context, name string, argsJSON string) (string,
 		}
 		if a.Path == "" {
 			return "", fmt.Errorf(`the "path" argument was missing or empty — arguments must include both "path" and "content" as top-level JSON fields, e.g. {"path":"notes.html","content":"..."}`)
+		}
+		// A missing "content" key alongside some other, unexpected key is a
+		// corrupted tool call (observed live: the chat template's own
+		// tag-extraction mangled the parameter name into an empty string,
+		// silently writing an empty file otherwise) — not a deliberate
+		// empty file, which would just omit "content" entirely.
+		if _, hasContent := raw["content"]; !hasContent && len(raw) > 1 {
+			return "", fmt.Errorf(`the "content" argument is missing (got keys %v instead) — retry with both "path" and "content" as top-level JSON fields, e.g. {"path":"notes.html","content":"..."}`, rawKeys(raw))
 		}
 		return Write(a.Path, a.Content)
 	case "edit":
