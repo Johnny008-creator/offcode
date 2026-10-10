@@ -803,7 +803,8 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 	m.messages = append(m.messages, msg)
 
 	if len(msg.ToolCalls) == 0 {
-		if incomplete := m.incompletePlanSteps(); len(incomplete) > 0 && m.planNudges < maxPlanNudges {
+		incomplete := m.incompletePlanSteps()
+		if len(incomplete) > 0 && m.planNudges < maxPlanNudges {
 			m.planNudges++
 			m.pushBlock(block{kind: blockSystem, text: "( plan has unfinished steps — asking the model to confirm or continue )"})
 			m.messages = append(m.messages, backend.Message{
@@ -814,6 +815,16 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 				),
 			})
 			return m.startGeneration()
+		}
+		// Mirrors internal/webengine/loop.go: once the nudge budget runs
+		// out, the model can still reply with empty content — make that
+		// outcome visible instead of leaving the transcript looking like
+		// it just stopped for no reason.
+		if len(incomplete) > 0 && msg.Content == "" {
+			m.pushBlock(block{kind: blockSystem, text: fmt.Sprintf(
+				"( stopped without a final answer — %d plan step(s) still unfinished after %d reminder(s): %s )",
+				len(incomplete), maxPlanNudges, strings.Join(incomplete, "; "),
+			)})
 		}
 		m.state = stateIdle
 		m.activity = ""

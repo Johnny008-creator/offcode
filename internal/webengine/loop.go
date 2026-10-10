@@ -69,7 +69,8 @@ func (s *Session) runTurn(ctx context.Context) {
 		s.mu.Unlock()
 
 		if len(msg.ToolCalls) == 0 {
-			if incomplete := s.incompletePlanSteps(); len(incomplete) > 0 && s.planNudges < maxPlanNudges {
+			incomplete := s.incompletePlanSteps()
+			if len(incomplete) > 0 && s.planNudges < maxPlanNudges {
 				s.planNudges++
 				s.pushBlock(Block{Kind: BlockSystem, Text: "( plan has unfinished steps — asking the model to confirm or continue )"})
 				s.mu.Lock()
@@ -82,6 +83,19 @@ func (s *Session) runTurn(ctx context.Context) {
 				})
 				s.mu.Unlock()
 				continue
+			}
+			// Live-observed with gemma4:12b/Anvil: after the nudge budget runs
+			// out, the model can still reply with empty content and no tool
+			// calls — finishRun(nil) would then end the turn with literally
+			// nothing visible, leaving the user staring at a conversation
+			// that just stopped with no explanation (the plan panel shows
+			// unfinished steps, but nothing says why generation ended). Make
+			// that outcome visible instead of silent.
+			if len(incomplete) > 0 && msg.Content == "" {
+				s.pushBlock(Block{Kind: BlockSystem, Text: fmt.Sprintf(
+					"( stopped without a final answer — %d plan step(s) still unfinished after %d reminder(s): %s )",
+					len(incomplete), maxPlanNudges, strings.Join(incomplete, "; "),
+				)})
 			}
 			s.finishRun(nil)
 			return

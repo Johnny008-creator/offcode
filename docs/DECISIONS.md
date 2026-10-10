@@ -599,3 +599,28 @@ session — the driver reset and recovered fine; a hardware/driver
 limitation of this specific low-end card under sustained load, not an
 offcode bug). Covered by `TestStreamChatNativeSetsNumCtx` and
 `TestStreamChatNativeNumCtxEnvOverride` in `internal/backend`.
+
+**A turn could end with literally nothing shown, even after real work got
+done.** Seen three separate times live with Offcode Anvil (gemma4:12b) —
+most recently 2026-10-10 with a short, vague prompt ("Chci malou to-do
+appku do prohlížeče") rather than a spelled-out requirements list: it
+planned on its own (4 steps, single-file HTML+CSS+JS, correctly used
+`lang="cs"` for the Czech prompt), wrote a genuinely working
+`todo_app.html` (localStorage, add/complete/delete), but never called
+`plan_update` to mark its own step done. The plan-nudge system message
+fired twice (`maxPlanNudges`), and on the third attempt the model
+returned empty content with no tool calls. `runTurn`
+(`internal/webengine/loop.go`) hit `s.finishRun(nil)`, which — since
+`err` was `nil` — added no block at all: the transcript just stopped,
+with a real file sitting on disk that nothing in the UI pointed to.
+Fixed by checking, right before that `finishRun(nil)`, whether plan
+steps are still incomplete and content came back empty — if so, push an
+explicit system block naming which steps are still open and how many
+reminders were sent, instead of silent nothing. Doesn't change model
+behavior (gemma4:12b still won't reliably call `plan_update`), just
+makes the actual outcome visible so the user isn't left guessing whether
+anything happened. Mirrored in `internal/tui/model.go`'s equivalent
+path. Covered by `TestRunTurnExplainsExhaustedPlanNudges`
+(`internal/webengine`), which fakes a model that always returns empty
+content and asserts exactly one explanatory block appears after the
+nudge budget is spent.
