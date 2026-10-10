@@ -27,6 +27,7 @@
   const researchOverlay = el('research-overlay');
   const usageOverlay = el('usage-overlay');
 
+  let currentAudio = null;
   let lastStatus = null;
   let modelPickerShown = false;
   let lastRenderKey = '';
@@ -87,6 +88,20 @@
       }
       case 'assistant': {
         div.innerHTML = renderMarkdown(b.text || '');
+        const speak = document.createElement('button'); speak.className = 'btn'; speak.textContent = 'read aloud';
+        speak.addEventListener('click', async () => {
+          speak.disabled = true;
+          try {
+            if (currentAudio) { currentAudio.pause(); URL.revokeObjectURL(currentAudio.src); }
+            const response = await fetch('/api/speak', {method:'POST', headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({text:b.text, language:(navigator.language || 'en').split('-')[0]})});
+            if (!response.ok) throw new Error((await response.json()).error);
+            const url = URL.createObjectURL(await response.blob());
+            currentAudio = new Audio(url); currentAudio.onended = () => URL.revokeObjectURL(url);
+            await currentAudio.play();
+          } catch (e) { alert(e.message); } finally { speak.disabled = false; }
+        });
+        div.appendChild(speak);
         if (window.hljs) {
           div.querySelectorAll('pre code').forEach((code) => {
             try { hljs.highlightElement(code); } catch (e) { /* best-effort */ }
@@ -96,6 +111,26 @@
       }
       default:
         div.textContent = b.text || '';
+    }
+    for (const data of b.images || []) {
+      const img = document.createElement('img');
+      img.className = 'artifact-preview'; img.alt = 'Tool image';
+      img.src = 'data:image/' + (data.startsWith('/9j/') ? 'jpeg' : 'png') + ';base64,' + data;
+      div.appendChild(img);
+    }
+    if (b.artifact_url && b.artifact_url.startsWith('/api/artifact?')) {
+      const ext = (b.artifact_name || '').split('.').pop().toLowerCase();
+      const tag = ['png','jpg','jpeg','webp','gif'].includes(ext) ? 'img'
+        : ['mp3','wav','flac'].includes(ext) ? 'audio' : ['mp4','webm'].includes(ext) ? 'video' : null;
+      if (tag) {
+        const media = document.createElement(tag); media.src = b.artifact_url;
+        media.className = 'artifact-preview'; media.controls = true; media.preload = 'metadata';
+        if (tag === 'img') media.alt = b.artifact_name;
+        div.appendChild(media);
+      }
+      const link = document.createElement('a'); link.href = b.artifact_url;
+      link.textContent = 'Download ' + b.artifact_name; link.download = b.artifact_name;
+      div.appendChild(link);
     }
     return div;
   }
@@ -220,7 +255,7 @@
 
   function showConfirm(c) {
     confirmToolName.textContent = c.tool_name;
-    confirmArgs.textContent = c.tool_args;
+    confirmArgs.textContent = c.preview || c.tool_args;
     confirmOverlay.hidden = false;
   }
 
@@ -251,7 +286,7 @@
     renderActivity(state);
     renderPlan(state.plan);
 
-    const key = JSON.stringify(state.blocks.map((b) => b.text && b.text.length).concat(state.blocks.length));
+    const key = JSON.stringify([state.session_id, state.blocks]);
     if (key !== lastRenderKey) {
       renderTranscript(state.blocks);
       lastRenderKey = key;
@@ -311,6 +346,36 @@
       modelListEl.innerHTML = '<div style="color:var(--red)">' + escapeHtml(e.message) + '</div>';
     }
   }
+
+  let recorder = null;
+  let recordingTimer = null;
+  el('mic-btn').addEventListener('click', async () => {
+    if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+    const button = el('mic-btn');
+    let stream;
+    try {
+      if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error('Audio recording is not supported in this browser.');
+      stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      const recording = new MediaRecorder(stream); recorder = recording;
+      const chunks = [];
+      recording.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      recording.onstop = async () => {
+        clearTimeout(recordingTimer); stream.getTracks().forEach(track => track.stop());
+        button.textContent = 'transcribing…'; button.disabled = true;
+        try {
+          const response = await fetch('/api/transcribe', {method:'POST',body:new Blob(chunks,{type:recording.mimeType})});
+          const data = await response.json(); if (!response.ok) throw new Error(data.error);
+          input.value = [input.value, data.text].filter(Boolean).join(' '); input.dispatchEvent(new Event('input'));
+        } catch (e) { alert(e.message); }
+        finally { recorder = null; button.disabled = false; button.textContent = 'record'; }
+      };
+      recording.start(); button.textContent = 'stop recording';
+      recordingTimer = setTimeout(() => {if (recording.state === 'recording') recording.stop();}, 120000);
+    } catch (e) {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      alert(e.message); button.textContent = 'record'; recorder = null;
+    }
+  });
 
   composer.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -377,6 +442,16 @@
     try {
       const data = await api('/api/usage');
       el('usage-report').textContent = data.report;
+      const chart = el('usage-chart'); chart.replaceChildren();
+      const rows = data.summaries || [];
+      const max = Math.max(1, ...rows.map(r => r.PromptTokens + r.CompletionTokens));
+      for (const row of rows) {
+        const label = document.createElement('label');
+        const count = row.PromptTokens + row.CompletionTokens;
+        label.textContent = row.Tag + ' · ' + count.toLocaleString() + ' tokens';
+        const meter = document.createElement('meter'); meter.min = 0; meter.max = max; meter.value = count;
+        meter.setAttribute('aria-label', label.textContent); label.appendChild(meter); chart.appendChild(label);
+      }
     } catch (e) {
       el('usage-report').textContent = e.message;
     }

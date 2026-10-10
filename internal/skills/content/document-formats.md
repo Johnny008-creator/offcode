@@ -23,9 +23,9 @@ silently returning nothing. There's no OCR capability available — tell
 the user this directly rather than fabricating what the document might
 say.
 
-**Writing these formats back out is NOT supported** — `write` only
-produces plain text/code files. If asked to "save this as a PDF" or
-"create a Word document," say that directly rather than writing a
-`.pdf`/`.docx` extension on a plain-text file (which would just create a
-broken/unopenable file, not a real document in that format). Markdown
-(`.md`) is always a safe, real alternative to offer instead.
+**Exporting documents:** first use `write` to save the report as Markdown,
+then call `export_document(source, path)` with a new `.pdf` or `.docx`
+output path. The exporter runs local Pandoc; PDF also needs XeLaTeX or the
+engine selected by `OFFCODE_PDF_ENGINE`. If a dependency is missing, report
+the error and keep the Markdown source. Never write plain text under a
+`.pdf` or `.docx` extension. The exporter preserves existing output files.

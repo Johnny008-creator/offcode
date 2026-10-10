@@ -5,6 +5,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/mcpclient"
+	"github.com/Johnny008-creator/offcode/internal/semsearch"
 	"github.com/Johnny008-creator/offcode/internal/subagent"
 )
 
@@ -44,4 +45,11 @@ type subagentDoneMsg struct {
 	callID string
 	result subagent.Result
 	err    error
+}
+
+type semanticSearchDoneMsg struct {
+	callID     string
+	matches    []semsearch.Match
+	reembedded int
+	err        error
 }

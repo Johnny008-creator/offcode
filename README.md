@@ -16,7 +16,8 @@ write, edit, bash, grep, glob, web_search, fetch_url), three permission
 modes, Ollama (native API) and LM Studio (OpenAI-compatible) backends, and
 a fallback parser for models that emit tool calls as plain-text JSON
 instead of using the structured `tool_calls` field (confirmed necessary in
-practice against `qwen2.5-coder:7b`). No context compaction yet.
+practice against `qwen2.5-coder:7b`). Includes context compaction, opt-in
+session resume, persistent memory, and a web UI (`offcode web`).
 
 The model plans non-trivial tasks up front and tracks progress (a
 persistent checklist panel above the transcript), can ask you to pick
@@ -76,3 +77,63 @@ Flags:
 one-time `docker run` setup (`--restart unless-stopped`, so once it's up
 it just keeps running). Without it those two tools return an error; the
 rest of offcode works fine either way.
+
+## Semantic code search
+
+With an Ollama backend, `semantic_search` finds code by meaning and returns
+file paths, line numbers, and matching excerpts. Install its local embedding
+model once:
+
+```sh
+ollama pull nomic-embed-text
+```
+
+Then ask offcode, in the terminal or web UI, to find the code responsible for
+a behavior using semantic search. The first call indexes supported text
+files; later calls re-embed changed files and remove deleted entries. The
+cache lives in `.offcode/semindex.json` in the project (add `.offcode/` to
+your project's `.gitignore`). Hidden and common generated directories,
+symlinks, and files larger than 300 KB are skipped; indexing is limited to
+3,000 files. LM Studio is not supported by this tool yet.
+
+## Validation
+
+Run the offline suite (including the race detector), static checks, and build:
+
+```sh
+go test -short -race ./...
+go vet ./...
+go build -o bin/offcode ./cmd/offcode
+```
+
+`-short` skips integration tests requiring Ollama, Chromium, or the external
+MCP filesystem server. Run `go test ./...` in an environment where these
+services can run; the MCP tests use `npx` and may require network access.
+Live semantic ranking can be checked separately with:
+
+```sh
+go test -v ./internal/semsearch -run 'TestSearchFindsSemanticMatch|TestSearchIncrementalReindex'
+```
+
+These two live tests report `SKIP` when the embedding model is unavailable;
+a skipped test does not confirm semantic ranking quality. Offline tests use
+synthetic vectors to verify protocol handling, indexing, cache invalidation,
+and the TUI/web tool integration.
+
+## Extended capabilities
+
+- `generate_image`, `generate_video`, `generate_music`: configured local ComfyUI workflows.
+- `export_document`: Markdown to DOCX/PDF through local Pandoc.
+- `transcribe_audio`, `synthesize_speech`: local Whisper/FFmpeg and eSpeak NG;
+  the web UI has microphone dictation and response playback.
+- `repo_map`, `git_summary`: bounded repository navigation and review context.
+- `offcode learn add` and `scripts/training/`: reviewed datasets, LoRA training,
+  periodic retraining and model deployment (`offcode learn deploy`).
+- `scripts/eval/run.py`: isolated ten-task campaigns for five tiers or LM Studio.
+- Windows build with native CPU/memory monitoring and a Linux/Windows CI matrix.
+
+Run `offcode doctor -extensions` to inspect optional dependencies. These
+capabilities do not install or bundle large models and services. Setup and
+limits are in [EXTENSIONS](docs/EXTENSIONS.md), [TRAINING](docs/TRAINING.md),
+and [EVALUATION](docs/EVALUATION.md). The current implementation/validation
+checklist is [IMPLEMENTATION](docs/IMPLEMENTATION.md).

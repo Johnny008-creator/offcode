@@ -2,3 +2,8 @@
 /dist/
 *.exe
 .DS_Store
+/.offcode/semindex.json
+/.offcode/semindex-*.json
+
+__pycache__/
+*.pyc

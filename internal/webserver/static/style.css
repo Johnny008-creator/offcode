@@ -440,3 +440,7 @@ html, body {
 @media (min-width: 761px) {
   .icon-btn { display: none; }
 }
+
+.artifact-preview { display:block; max-width:100%; max-height:480px; margin:12px 0; border-radius:8px; }
+#usage-chart label { display:block; margin:12px 0; }
+#usage-chart meter { display:block; width:100%; height:20px; }

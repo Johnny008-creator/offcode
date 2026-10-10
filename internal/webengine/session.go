@@ -39,11 +39,15 @@ const (
 )
 
 type Block struct {
-	Kind     BlockKind `json:"kind"`
-	Text     string    `json:"text,omitempty"`
-	ToolName string    `json:"tool_name,omitempty"`
-	ToolArgs string    `json:"tool_args,omitempty"`
-	IsError  bool      `json:"is_error,omitempty"`
+	Images       []string `json:"images,omitempty"`
+	ArtifactURL  string   `json:"artifact_url,omitempty"`
+	ArtifactName string   `json:"artifact_name,omitempty"`
+	artifactPath string
+	Kind         BlockKind `json:"kind"`
+	Text         string    `json:"text,omitempty"`
+	ToolName     string    `json:"tool_name,omitempty"`
+	ToolArgs     string    `json:"tool_args,omitempty"`
+	IsError      bool      `json:"is_error,omitempty"`
 }
 
 type PlanStepView struct {
@@ -52,6 +56,7 @@ type PlanStepView struct {
 }
 
 type ConfirmView struct {
+	Preview  string `json:"preview,omitempty"`
 	ToolName string `json:"tool_name"`
 	ToolArgs string `json:"tool_args"`
 }
@@ -93,6 +98,7 @@ type Session struct {
 	activity string
 
 	pendingConfirmTC *backend.ToolCall
+	pendingPreview   string
 	confirmCh        chan bool
 
 	pendingAskTC          *backend.ToolCall
@@ -102,6 +108,7 @@ type Session struct {
 	askCh                 chan string
 
 	cancelFn context.CancelFunc
+	turnCtx  context.Context
 
 	lastFailedCall  string
 	repeatFailCount int
@@ -364,7 +371,7 @@ func (s *Session) snapshotLocked() State {
 		SessionID:    s.sessionID,
 	}
 	if s.pendingConfirmTC != nil {
-		st.Confirm = &ConfirmView{ToolName: s.pendingConfirmTC.Function.Name, ToolArgs: s.pendingConfirmTC.Function.Arguments}
+		st.Confirm = &ConfirmView{ToolName: s.pendingConfirmTC.Function.Name, ToolArgs: s.pendingConfirmTC.Function.Arguments, Preview: s.pendingPreview}
 	}
 	if s.pendingAskTC != nil {
 		st.Ask = &AskView{Question: s.pendingAskQuestion, Options: s.pendingAskOptions, Recommended: s.pendingAskRecommended}
@@ -431,9 +438,7 @@ func (s *Session) Stop() {
 
 // saveToDiskLocked persists the current conversation under this
 // session's id. Doesn't take s.mu itself — every call site either
-// already holds it (StartNew, SwitchTo) or is in loop.go's established
-// pattern of touching session fields right after releasing the lock at
-// an idle transition, where nothing else is concurrently writing.
+// holds it, including the final turn transition before publishing idle.
 func (s *Session) saveToDiskLocked() {
 	if s.cwd == "" || s.sessionID == "" || len(s.messages) <= 1 {
 		return
@@ -457,10 +462,13 @@ func (s *Session) Submit(text string) bool {
 	s.blocks = append(s.blocks, Block{Kind: BlockUser, Text: text})
 	s.toolIterations = 0
 	s.planNudges = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	s.turnCtx = ctx
+	s.cancelFn = cancel
 	s.notify()
 	s.mu.Unlock()
 
-	go s.runTurn()
+	go func() { defer cancel(); s.runTurn(ctx) }()
 	return true
 }
 
@@ -478,10 +486,13 @@ func (s *Session) SubmitDisplay(display, actual string) bool {
 	s.blocks = append(s.blocks, Block{Kind: BlockUser, Text: display})
 	s.toolIterations = 0
 	s.planNudges = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	s.turnCtx = ctx
+	s.cancelFn = cancel
 	s.notify()
 	s.mu.Unlock()
 
-	go s.runTurn()
+	go func() { defer cancel(); s.runTurn(ctx) }()
 	return true
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/media"
 	"github.com/Johnny008-creator/offcode/internal/monitor"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tui"
@@ -23,6 +24,15 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "eval-case":
+			runEvalCase(os.Args[2:])
+			return
+		case "tool":
+			runTool(os.Args[2:])
+			return
+		case "learn":
+			runLearn(os.Args[2:])
+			return
 		case "monitor":
 			runMonitor(os.Args[2:])
 			return
@@ -298,6 +308,7 @@ func runModels(args []string) {
 func runDoctor(args []string) {
 	fs := flag.NewFlagSet("offcode doctor", flag.ExitOnError)
 	fixFlag := fs.Bool("fix", false, "automatically run `ollama pull` for any missing tier model")
+	extensionsFlag := fs.Bool("extensions", false, "also check document, voice and media dependencies")
 	fs.Parse(args)
 
 	ok := true
@@ -348,6 +359,41 @@ func runDoctor(args []string) {
 		}
 	}
 
+	if *extensionsFlag {
+		engine := os.Getenv("OFFCODE_PDF_ENGINE")
+		if engine == "" {
+			engine = "xelatex"
+		}
+		for _, name := range []string{"pandoc", engine, "ffmpeg", "whisper-cli", "espeak-ng"} {
+			path, err := exec.LookPath(name)
+			if err != nil {
+				check(name, false, "not found on PATH")
+			} else {
+				check(name, true, path)
+			}
+		}
+		model := os.Getenv("OFFCODE_WHISPER_MODEL")
+		info, err := os.Stat(model)
+		check("Whisper model", err == nil && info != nil && !info.IsDir(), model)
+		cfg, err := media.Load()
+		if err != nil {
+			check("ComfyUI configuration", false, err.Error())
+		} else {
+			for _, kind := range []string{"image", "video", "music"} {
+				workflow, exists := cfg.Workflows[kind]
+				_, err := os.Stat(workflow.File)
+				check(kind+" workflow", exists && err == nil, workflow.File)
+			}
+			resp, err := httpClient.Get(cfg.URL + "/system_stats")
+			if err != nil {
+				check("ComfyUI reachable", false, err.Error())
+			} else {
+				resp.Body.Close()
+				check("ComfyUI reachable", resp.StatusCode == 200, cfg.URL)
+			}
+		}
+	}
+
 	if *fixFlag && len(missing) > 0 {
 		fmt.Println()
 		fmt.Printf("--fix: pulling %d missing model(s)...\n", len(missing))
@@ -361,7 +407,12 @@ func runDoctor(args []string) {
 				os.Exit(1)
 			}
 		}
-		fmt.Println("\nAll missing models pulled.")
+		fmt.Println("\nAll missing models pulled. Rechecking services.")
+		verifyArgs := []string{}
+		if *extensionsFlag {
+			verifyArgs = append(verifyArgs, "-extensions")
+		}
+		runDoctor(verifyArgs)
 		return
 	}
 

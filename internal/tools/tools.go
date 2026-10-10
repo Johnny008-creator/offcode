@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -8,12 +9,15 @@ import (
 )
 
 func schema(props string, required ...string) json.RawMessage {
+	if required == nil {
+		required = []string{}
+	}
 	req, _ := json.Marshal(required)
 	return json.RawMessage(fmt.Sprintf(`{"type":"object","properties":%s,"required":%s}`, props, req))
 }
 
 func Definitions() []backend.Tool {
-	return []backend.Tool{
+	return append([]backend.Tool{
 		{Type: "function", Function: backend.FunctionDef{
 			Name:        "read",
 			Description: "Read the contents of a file at the given path.",
@@ -60,10 +64,17 @@ func Definitions() []backend.Tool {
 				"Use this over fetch_url when a page's content is generated/modified by JavaScript rather than present in the static HTML.",
 			Parameters: schema(`{"path":{"type":"string","description":"Local file path or http(s) URL"}}`, "path"),
 		}},
-	}
+	}, extensionDefinitions()...)
 }
 
 func Dispatch(name string, argsJSON string) (string, error) {
+	return DispatchContext(context.Background(), name, argsJSON)
+}
+
+func DispatchContext(ctx context.Context, name string, argsJSON string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	switch name {
 	case "read":
 		var a struct {
@@ -105,7 +116,7 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
 			return "", err
 		}
-		return Bash(a.Command)
+		return BashContext(ctx, a.Command)
 	case "grep":
 		var a struct {
 			Pattern    string `json:"pattern"`
@@ -157,6 +168,6 @@ func Dispatch(name string, argsJSON string) (string, error) {
 		}
 		return RenderedText(a.Path)
 	default:
-		return "", fmt.Errorf("unknown tool: %q (available tools: read, write, edit, bash, grep, glob, web_search, fetch_url, browser_text)", name)
+		return dispatchExtension(ctx, name, argsJSON)
 	}
 }

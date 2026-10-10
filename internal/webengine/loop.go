@@ -16,6 +16,7 @@ import (
 	"github.com/Johnny008-creator/offcode/internal/mcpclient"
 	"github.com/Johnny008-creator/offcode/internal/memory"
 	"github.com/Johnny008-creator/offcode/internal/permission"
+	"github.com/Johnny008-creator/offcode/internal/semsearch"
 	"github.com/Johnny008-creator/offcode/internal/skills"
 	"github.com/Johnny008-creator/offcode/internal/subagent"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
@@ -28,21 +29,11 @@ import (
 // ask_user via blocking channel receives. It always leaves the session in
 // status "idle" when it returns, and always runs in its own goroutine
 // (started by Submit/SubmitDisplay).
-func (s *Session) runTurn() {
+func (s *Session) runTurn(ctx context.Context) {
 	for {
-		msg, usage, turnStart, err := s.streamOnce()
+		msg, usage, turnStart, err := s.streamOnce(ctx)
 		if err != nil {
-			s.mu.Lock()
-			s.status = "idle"
-			s.activity = ""
-			s.mu.Unlock()
-			if errors.Is(err, context.Canceled) {
-				s.pushBlock(Block{Kind: BlockSystem, Text: "( interrupted )"})
-			} else {
-				s.pushBlock(Block{Kind: BlockError, Text: err.Error(), IsError: true})
-			}
-			s.saveToDiskLocked()
-			s.notifyOnly()
+			s.finishRun(err)
 			return
 		}
 
@@ -92,23 +83,13 @@ func (s *Session) runTurn() {
 				s.mu.Unlock()
 				continue
 			}
-			s.mu.Lock()
-			s.status = "idle"
-			s.activity = ""
-			s.mu.Unlock()
-			s.saveToDiskLocked()
-			s.notifyOnly()
+			s.finishRun(nil)
 			return
 		}
 
 		s.toolIterations++
 		if s.toolIterations > maxToolIterationsPerTurn {
-			s.pushBlock(Block{Kind: BlockError, Text: fmt.Sprintf("stopped after %d tool iterations without a final answer", maxToolIterationsPerTurn), IsError: true})
-			s.mu.Lock()
-			s.status = "idle"
-			s.activity = ""
-			s.mu.Unlock()
-			s.saveToDiskLocked()
+			s.finishRun(fmt.Errorf("stopped after %d tool iterations without a final answer", maxToolIterationsPerTurn))
 			return
 		}
 
@@ -134,7 +115,7 @@ func (s *Session) incompletePlanSteps() []string {
 
 // streamOnce runs exactly one model request to completion (or error),
 // streaming content/reasoning deltas into the transcript live.
-func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error) {
+func (s *Session) streamOnce(ctx context.Context) (backend.Message, backend.Usage, time.Time, error) {
 	s.mu.Lock()
 	model := s.cfg.Model
 	backendKind := s.cfg.Backend
@@ -142,11 +123,8 @@ func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error
 	vision := s.visionCapable
 	mcpTools := s.mcpTools
 	msgs := append([]backend.Message(nil), s.messages...)
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancelFn = cancel
 	s.activity = "thinking"
 	s.mu.Unlock()
-	defer cancel()
 
 	req := backend.ChatRequest{Model: model, Messages: msgs, Tools: toolsForModel(model, vision, mcpTools)}
 
@@ -216,6 +194,10 @@ func (s *Session) streamOnce() (backend.Message, backend.Usage, time.Time, error
 // runToolCall executes (or synchronously pauses for confirmation / a user
 // answer on) a single tool call, appending its result to the transcript.
 func (s *Session) runToolCall(tc backend.ToolCall) {
+	if err := s.toolContext().Err(); err != nil {
+		s.recordToolResult(tc, "interrupted: "+err.Error(), true)
+		return
+	}
 	s.pushBlock(Block{Kind: BlockToolCall, ToolName: tc.Function.Name, ToolArgs: tc.Function.Arguments})
 
 	switch tc.Function.Name {
@@ -239,6 +221,9 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 		return
 	case "preview_page":
 		s.handlePreviewPage(tc)
+		return
+	case "semantic_search":
+		s.handleSemanticSearch(tc)
 		return
 	case "spawn_subagent":
 		s.handleSpawnSubagent(tc)
@@ -304,11 +289,11 @@ func (s *Session) runToolCall(tc backend.ToolCall) {
 		s.mu.Lock()
 		mgr := s.mcpMgr
 		s.mu.Unlock()
-		mcpCtx, mcpCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		mcpCtx, mcpCancel := context.WithTimeout(s.toolContext(), 60*time.Second)
 		out, err = mgr.Dispatch(mcpCtx, tc.Function.Name, tc.Function.Arguments)
 		mcpCancel()
 	} else {
-		out, err = tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+		out, err = tools.DispatchContext(s.toolContext(), tc.Function.Name, tc.Function.Arguments)
 	}
 	if err != nil {
 		content := "error: " + err.Error()
@@ -335,13 +320,18 @@ func (s *Session) waitForConfirm(tc backend.ToolCall) bool {
 	ch := make(chan bool, 1)
 	s.mu.Lock()
 	s.pendingConfirmTC = &tc
+	s.pendingPreview = diffPreview(tc)
 	s.confirmCh = ch
 	s.status = "confirming"
 	s.activity = "awaiting confirmation"
 	s.notify()
 	s.mu.Unlock()
 
-	allow := <-ch
+	var allow bool
+	select {
+	case allow = <-ch:
+	case <-s.toolContext().Done():
+	}
 
 	s.mu.Lock()
 	s.pendingConfirmTC = nil
@@ -377,7 +367,12 @@ func (s *Session) handleAskUser(tc backend.ToolCall) {
 	s.notify()
 	s.mu.Unlock()
 
-	answer := <-ch
+	var answer string
+	select {
+	case answer = <-ch:
+	case <-s.toolContext().Done():
+		answer = "interrupted"
+	}
 
 	s.mu.Lock()
 	s.pendingAskTC = nil
@@ -565,7 +560,7 @@ func (s *Session) handleSpawnSubagent(tc backend.ToolCall) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(s.toolContext(), 5*time.Minute)
 	defer cancel()
 	result, err := subagent.Run(ctx, s.client, backendKind, modelTag, think, a.Task)
 	if err != nil {
@@ -592,7 +587,7 @@ func (s *Session) recordToolResultImage(tc backend.ToolCall, content string, ima
 		Content:    content,
 		Images:     images,
 	})
-	s.blocks = append(s.blocks, Block{Kind: BlockToolResult, ToolName: tc.Function.Name, Text: content})
+	s.blocks = append(s.blocks, Block{Kind: BlockToolResult, ToolName: tc.Function.Name, Text: content, Images: images})
 	s.notify()
 	s.mu.Unlock()
 }
@@ -617,7 +612,7 @@ func (s *Session) recordToolResult(tc backend.ToolCall, content string, isError 
 		Name:       tc.Function.Name,
 		Content:    content,
 	})
-	s.blocks = append(s.blocks, Block{Kind: BlockToolResult, ToolName: tc.Function.Name, Text: content, IsError: isError})
+	s.blocks = append(s.blocks, artifactBlock(tc, content, isError, len(s.blocks)))
 	s.notify()
 	s.mu.Unlock()
 }
@@ -649,4 +644,65 @@ func (s *Session) notifyOnly() {
 	s.mu.Lock()
 	s.notify()
 	s.mu.Unlock()
+}
+
+func (s *Session) handleSemanticSearch(tc backend.ToolCall) {
+	var a struct {
+		Query      string `json:"query"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Query) == "" {
+		s.recordToolResult(tc, "error: semantic_search requires a non-empty query string", true)
+		return
+	}
+	if s.cfg.Backend != "ollama" {
+		s.recordToolResult(tc, "error: semantic_search requires an Ollama backend with nomic-embed-text installed", true)
+		return
+	}
+	if a.MaxResults <= 0 {
+		a.MaxResults = 8
+	}
+	a.MaxResults = min(a.MaxResults, 50)
+	ctx, cancel := context.WithTimeout(s.toolContext(), 3*time.Minute)
+	defer cancel()
+	matches, n, err := semsearch.Search(ctx, s.client, s.cwd, a.Query, a.MaxResults)
+	if err != nil {
+		s.recordToolResult(tc, "error: semantic_search failed: "+err.Error(), true)
+		return
+	}
+	var b strings.Builder
+	if n > 0 {
+		fmt.Fprintf(&b, "(indexed %d file(s) for this search)\n\n", n)
+	}
+	if len(matches) == 0 {
+		b.WriteString("no indexed content — the project may have no matching text files.")
+	}
+	for i, m := range matches {
+		fmt.Fprintf(&b, "%d. %s:%d-%d (score %.2f)\n%s\n\n", i+1, m.File, m.StartLine, m.EndLine, m.Score, string([]rune(m.Text)[:min(len([]rune(m.Text)), 500)]))
+	}
+	s.recordToolResult(tc, strings.TrimSpace(b.String()), false)
+}
+
+func (s *Session) toolContext() context.Context {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.turnCtx != nil {
+		return s.turnCtx
+	}
+	return context.Background()
+}
+
+// Publish idle only once final blocks and the saved session are consistent.
+func (s *Session) finishRun(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if errors.Is(err, context.Canceled) {
+		s.blocks = append(s.blocks, Block{Kind: BlockSystem, Text: "( interrupted )"})
+	} else if err != nil {
+		s.blocks = append(s.blocks, Block{Kind: BlockError, Text: err.Error(), IsError: true})
+	}
+	s.activity = ""
+	s.saveToDiskLocked()
+	s.status = "idle"
+	s.notify()
 }

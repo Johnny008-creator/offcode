@@ -12,6 +12,7 @@ import (
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/memory"
+	"github.com/Johnny008-creator/offcode/internal/semsearch"
 	"github.com/Johnny008-creator/offcode/internal/skills"
 	"github.com/Johnny008-creator/offcode/internal/subagent"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
@@ -58,6 +59,14 @@ func metaToolDefinitions() []backend.Tool {
 				"all inline, or to punt a hard sub-problem to a stronger tier. The sub-agent is READ-ONLY (no write/" +
 				"edit/bash) — it investigates and reports, it cannot make changes itself.",
 			Parameters: metaSchema(`{"task":{"type":"string","description":"A clear, self-contained description of what to investigate/do — the sub-agent sees nothing else from this conversation."},"tier":{"type":"string","description":"Optional: spark, ember, forge, or anvil. Defaults to the current model if omitted."}}`, "task"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
+			Name: "semantic_search",
+			Description: "Search the codebase by MEANING rather than exact text — finds relevant code even when " +
+				"it doesn't contain your literal query words (unlike grep). Use for \"find the function that does X\" " +
+				"style questions. The first call in a project embeds it (can take a while for a large repo); later " +
+				"calls only re-embed files that changed.",
+			Parameters: metaSchema(`{"query":{"type":"string"},"max_results":{"type":"integer","description":"Defaults to 8"}}`, "query"),
 		}},
 		{Type: "function", Function: backend.FunctionDef{
 			Name: "load_skill",
@@ -331,6 +340,52 @@ func execSubagentCmd(tc backend.ToolCall, client *backend.Client, backendKind, m
 		result, err := subagent.Run(ctx, client, backendKind, modelTag, think, task)
 		return subagentDoneMsg{callID: tc.ID, result: result, err: err}
 	}
+}
+
+func (m Model) handleSemanticSearch(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	var a struct {
+		Query      string `json:"query"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil || strings.TrimSpace(a.Query) == "" {
+		return m.recordToolResult(tc, "error: semantic_search requires a non-empty \"query\" string", true)
+	}
+	if a.MaxResults <= 0 {
+		a.MaxResults = 8
+	}
+	if m.cfg.Backend != "ollama" {
+		return m.recordToolResult(tc, "error: semantic_search requires an Ollama backend with nomic-embed-text installed", true)
+	}
+	a.MaxResults = min(a.MaxResults, 50)
+	m.activity = "semantic search: " + truncate(a.Query, 50)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelGen = cancel
+	cmd := execSemanticSearchCmd(ctx, tc, m.client, m.cwd, a.Query, a.MaxResults)
+	return m, func() tea.Msg { defer cancel(); return cmd() }
+}
+
+func execSemanticSearchCmd(parent context.Context, tc backend.ToolCall, client *backend.Client, cwd, query string, maxResults int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
+		defer cancel()
+		matches, reembedded, err := semsearch.Search(ctx, client, cwd, query, maxResults)
+		return semanticSearchDoneMsg{callID: tc.ID, matches: matches, reembedded: reembedded, err: err}
+	}
+}
+
+func renderSemanticMatches(matches []semsearch.Match, reembedded int) string {
+	var b strings.Builder
+	if reembedded > 0 {
+		fmt.Fprintf(&b, "(indexed %d file(s) for this search)\n\n", reembedded)
+	}
+	if len(matches) == 0 {
+		b.WriteString("no indexed content — the project may have no matching text files.")
+		return b.String()
+	}
+	for i, m := range matches {
+		fmt.Fprintf(&b, "%d. %s:%d-%d (score %.2f)\n%s\n\n", i+1, m.File, m.StartLine, m.EndLine, m.Score, truncate(m.Text, 500))
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (m Model) handleLoadSkill(tc backend.ToolCall) (tea.Model, tea.Cmd) {

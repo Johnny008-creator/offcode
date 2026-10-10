@@ -145,6 +145,60 @@ func (c *Client) SupportsVision(ctx context.Context, model string) bool {
 	return false
 }
 
+// Embed returns one embedding vector per input string, via Ollama's
+// native /api/embed (batched in a single request). Only meaningful
+// against an embedding model (e.g. "nomic-embed-text") — used by
+// internal/semsearch, not the chat completion path.
+func (c *Client) Embed(ctx context.Context, model string, inputs []string) ([][]float32, error) {
+	root := strings.TrimSuffix(strings.TrimRight(c.BaseURL, "/"), "/v1")
+	body, err := json.Marshal(map[string]any{"model": model, "input": inputs})
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/embed", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request to %s: %w", root, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("backend returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+
+	var parsed struct {
+		Embeddings [][]float32 `json:"embeddings"`
+		Error      string      `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("decode embed response: %w", err)
+	}
+	if parsed.Error != "" {
+		return nil, fmt.Errorf("backend error: %s", parsed.Error)
+	}
+	if len(parsed.Embeddings) != len(inputs) {
+		return nil, fmt.Errorf("expected %d embeddings, got %d", len(inputs), len(parsed.Embeddings))
+	}
+	for i, vector := range parsed.Embeddings {
+		if len(vector) == 0 {
+			return nil, fmt.Errorf("embedding %d is empty", i)
+		}
+		if len(vector) != len(parsed.Embeddings[0]) {
+			return nil, fmt.Errorf("embedding %d has inconsistent dimensions", i)
+		}
+	}
+	return parsed.Embeddings, nil
+}
+
 // ListModels returns the model names the backend currently has available.
 // Ollama exposes its native /api/tags; other OpenAI-compatible backends
 // (LM Studio, llama.cpp server) are queried via the standard GET /models.

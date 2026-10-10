@@ -1,0 +1,12 @@
+{
+  "url": "http://127.0.0.1:8188",
+  "workflows": {
+    "image": {
+      "file": "image.workflow.json",
+      "prompt_node": "6",
+      "prompt_input": "text",
+      "output_node": "9",
+      "output_key": "images"
+    }
+  }
+}

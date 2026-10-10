@@ -336,6 +336,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.recordToolResult(tc, fmt.Sprintf("subagent report%s:\n\n%s", trace, msg.result.Summary), false)
 
+	case semanticSearchDoneMsg:
+		if errors.Is(msg.err, context.Canceled) {
+			return m.handleToolExecuted(toolExecutedMsg{callID: msg.callID, name: "semantic_search", err: msg.err})
+		}
+		tc := backend.ToolCall{ID: msg.callID, Function: backend.FunctionCall{Name: "semantic_search"}}
+		if msg.err != nil {
+			return m.recordToolResult(tc, "error: semantic_search failed: "+msg.err.Error(), true)
+		}
+		return m.recordToolResult(tc, renderSemanticMatches(msg.matches, msg.reembedded), false)
+
 	case clipboardCopiedMsg:
 		if msg.err != nil {
 			m.pushBlock(block{kind: blockError, text: "clipboard copy failed: " + msg.err.Error()})
@@ -503,7 +513,7 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = stateGenerating
 		m.activity = "running tool: " + tc.Function.Name
 		m.resizeViewport()
-		return m, execToolCmd(tc, m.mcpMgr)
+		return m.startTool(tc)
 	case "n", "esc", "ctrl+c":
 		tc := *m.pendingConfirm
 		m.pendingConfirm = nil
@@ -837,6 +847,8 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 		return m.handlePreviewPage(tc)
 	case "spawn_subagent":
 		return m.handleSpawnSubagent(tc)
+	case "semantic_search":
+		return m.handleSemanticSearch(tc)
 	}
 
 	// Loop breaker: a model that gets an error back sometimes just retries
@@ -880,7 +892,7 @@ func (m Model) processNextToolCall() (tea.Model, tea.Cmd) {
 	}
 
 	m.activity = "running tool: " + tc.Function.Name
-	return m, execToolCmd(tc, m.mcpMgr)
+	return m.startTool(tc)
 }
 
 func extractPath(argsJSON string) string {
@@ -891,16 +903,25 @@ func extractPath(argsJSON string) string {
 	return a.Path
 }
 
-func execToolCmd(tc backend.ToolCall, mcpMgr *mcpclient.Manager) tea.Cmd {
+func (m Model) startTool(tc backend.ToolCall) (tea.Model, tea.Cmd) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	m.cancelGen = cancel
+	cmd := execToolCmd(ctx, tc, m.mcpMgr)
+	return m, func() tea.Msg { defer cancel(); return cmd() }
+}
+func execToolCmd(parent context.Context, tc backend.ToolCall, mcpMgr *mcpclient.Manager) tea.Cmd {
 	return func() tea.Msg {
 		var out string
 		var err error
 		if mcpclient.IsMCPTool(tc.Function.Name) {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 			defer cancel()
 			out, err = mcpMgr.Dispatch(ctx, tc.Function.Name, tc.Function.Arguments)
 		} else {
-			out, err = tools.Dispatch(tc.Function.Name, tc.Function.Arguments)
+			out, err = tools.DispatchContext(parent, tc.Function.Name, tc.Function.Arguments)
+		}
+		if parent.Err() != nil {
+			err = parent.Err()
 		}
 		return toolExecutedMsg{callID: tc.ID, name: tc.Function.Name, args: tc.Function.Arguments, path: extractPath(tc.Function.Arguments), output: out, err: err}
 	}
@@ -908,7 +929,19 @@ func execToolCmd(tc backend.ToolCall, mcpMgr *mcpclient.Manager) tea.Cmd {
 
 func (m Model) handleToolExecuted(ev toolExecutedMsg) (tea.Model, tea.Cmd) {
 	m.actionsSincePlanUpdate++
-	tc := backend.ToolCall{ID: ev.callID, Function: backend.FunctionCall{Name: ev.name}}
+	tc := backend.ToolCall{ID: ev.callID, Function: backend.FunctionCall{Name: ev.name, Arguments: ev.args}}
+	if errors.Is(ev.err, context.Canceled) {
+		calls := append([]backend.ToolCall{tc}, m.pendingToolCalls...)
+		for _, call := range calls {
+			m.messages = append(m.messages, backend.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: "interrupted by user"})
+		}
+		m.pendingToolCalls = nil
+		m.state = stateIdle
+		m.activity = ""
+		m.pushBlock(block{kind: blockSystem, text: "( interrupted )"})
+		m.saveSession()
+		return m, nil
+	}
 	if ev.err != nil {
 		content := "error: " + ev.err.Error()
 		if ev.output != "" {

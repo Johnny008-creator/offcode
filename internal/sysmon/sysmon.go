@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package sysmon reads local system load (CPU, memory, GPU) for the
 // offcode monitor view. Readers are Linux-focused today (procfs/sysfs) —
 // on any other OS, or if a reading isn't available, they return ok=false
@@ -6,7 +8,6 @@ package sysmon
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,15 +15,10 @@ import (
 	"strings"
 )
 
-type CPUSample struct {
-	idle, total uint64
-	valid       bool
-}
-
 // ReadCPU returns CPU usage percent since the previous sample. Pass the
 // zero CPUSample on the first call; from then on, pass back whatever this
 // function last returned.
-func ReadCPU(prev CPUSample) (percent float64, next CPUSample, ok bool) {
+func readCPUPlatform(prev CPUSample) (percent float64, next CPUSample, ok bool) {
 	f, err := os.Open("/proc/stat")
 	if err != nil {
 		return 0, prev, false
@@ -65,12 +61,7 @@ func ReadCPU(prev CPUSample) (percent float64, next CPUSample, ok bool) {
 	return percent, next, true
 }
 
-type Memory struct {
-	UsedBytes  uint64
-	TotalBytes uint64
-}
-
-func ReadMemory() (Memory, bool) {
+func readMemoryPlatform() (Memory, bool) {
 	f, err := os.Open("/proc/meminfo")
 	if err != nil {
 		return Memory{}, false
@@ -102,15 +93,6 @@ func ReadMemory() (Memory, bool) {
 		UsedBytes:  (totalKB - availKB) * 1024,
 		TotalBytes: totalKB * 1024,
 	}, true
-}
-
-type GPU struct {
-	Name        string
-	BusyPercent float64
-	VRAMUsed    uint64
-	VRAMTotal   uint64
-	TempC       float64
-	PowerW      float64
 }
 
 var cachedGPUCardDir string
@@ -207,17 +189,4 @@ func readUintFile(path string) (uint64, bool) {
 		return 0, false
 	}
 	return v, true
-}
-
-func FormatBytes(b uint64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := uint64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }

@@ -49,6 +49,14 @@ func metaToolDefinitions() []backend.Tool {
 			Parameters: metaSchema(`{"task":{"type":"string","description":"A clear, self-contained description of what to investigate/do — the sub-agent sees nothing else from this conversation."},"tier":{"type":"string","description":"Optional: spark, ember, forge, or anvil. Defaults to the current model if omitted."}}`, "task"),
 		}},
 		{Type: "function", Function: backend.FunctionDef{
+			Name: "semantic_search",
+			Description: "Search the codebase by MEANING rather than exact text — finds relevant code even when " +
+				"it doesn't contain your literal query words (unlike grep). Use for \"find the function that does X\" " +
+				"style questions. The first call in a project embeds it (can take a while for a large repo); later " +
+				"calls only re-embed files that changed.",
+			Parameters: metaSchema(`{"query":{"type":"string"},"max_results":{"type":"integer","description":"Defaults to 8"}}`, "query"),
+		}},
+		{Type: "function", Function: backend.FunctionDef{
 			Name: "load_skill",
 			Description: "Load the full reference content of a named skill from the available-skills list " +
 				"in your system prompt, when the current task actually touches that topic.",

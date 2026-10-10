@@ -8,7 +8,11 @@ import (
 )
 
 func Bash(command string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	return BashContext(context.Background(), command)
+}
+
+func BashContext(parent context.Context, command string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 
 	var cmd *exec.Cmd

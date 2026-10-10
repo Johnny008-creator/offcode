@@ -14,6 +14,9 @@ import (
 // npx/network isn't available, since it needs to fetch/run a real
 // subprocess, not a mock.
 func TestConnectRealFilesystemServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires the external MCP filesystem server")
+	}
 	if _, err := exec.LookPath("npx"); err != nil {
 		t.Skip("npx not available")
 	}
@@ -74,6 +77,9 @@ func TestConnectRealFilesystemServer(t *testing.T) {
 // MCP server dies the moment that short-lived context is canceled —
 // breaking every tool call for the rest of the session.
 func TestServerSurvivesConnectContextExpiry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires the external MCP filesystem server")
+	}
 	if _, err := exec.LookPath("npx"); err != nil {
 		t.Skip("npx not available")
 	}

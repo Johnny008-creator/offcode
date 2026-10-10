@@ -8,6 +8,10 @@ import (
 
 func writeTempHTML(t *testing.T, html string) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("integration test requires a runnable Chromium browser")
+	}
+	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "browsertest-*.html")
 	if err != nil {
 		t.Fatal(err)

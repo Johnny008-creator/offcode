@@ -1,6 +1,16 @@
 package hooks
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
+
+func failingCommand(message string) string {
+	if runtime.GOOS == "windows" {
+		return "echo " + message + " 1>&2 & exit /b 1"
+	}
+	return "echo " + message + " >&2; exit 1"
+}
 
 func TestRunPreAllowsWhenNoHooksMatch(t *testing.T) {
 	cfg := Config{}
@@ -12,7 +22,7 @@ func TestRunPreAllowsWhenNoHooksMatch(t *testing.T) {
 
 func TestRunPreDeniesOnNonZeroExit(t *testing.T) {
 	cfg := Config{Hooks: []Hook{
-		{Event: PreToolUse, Matcher: "bash", Command: `echo "nope" >&2; exit 1`},
+		{Event: PreToolUse, Matcher: "bash", Command: failingCommand("nope")},
 	}}
 	res := RunPre(cfg, "bash", `{"command":"rm -rf /"}`)
 	if !res.Denied {
@@ -45,7 +55,7 @@ func TestRunPreWildcardMatchesEveryTool(t *testing.T) {
 
 func TestRunPostReturnsWarningOnFailure(t *testing.T) {
 	cfg := Config{Hooks: []Hook{
-		{Event: PostToolUse, Matcher: "write", Command: `echo "boom" >&2; exit 1`},
+		{Event: PostToolUse, Matcher: "write", Command: failingCommand("boom")},
 	}}
 	warnings := RunPost(cfg, "write", "{}", "wrote 10 bytes")
 	if len(warnings) != 1 {

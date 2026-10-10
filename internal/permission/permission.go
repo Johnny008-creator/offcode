@@ -12,6 +12,8 @@ const (
 
 var readOnlyTools = map[string]bool{
 	"read":         true,
+	"repo_map":     true,
+	"git_summary":  true,
 	"grep":         true,
 	"glob":         true,
 	"web_search":   true,

@@ -14,6 +14,10 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
@@ -80,6 +84,9 @@ func (s *Server) routes() {
 		s.mux.Handle("/", http.FileServer(http.FS(static)))
 	}
 
+	s.mux.HandleFunc("/api/transcribe", s.handleTranscribe)
+	s.mux.HandleFunc("/api/speak", s.handleSpeak)
+	s.mux.HandleFunc("/api/artifact", s.handleArtifact)
 	s.mux.HandleFunc("/api/state", s.handleState)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
 	s.mux.HandleFunc("/api/models", s.handleModels)
@@ -392,5 +399,43 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	summaries := usagelog.Summarize(records, time.Time{})
 	report := usagelog.RenderReport(summaries, "Usage (all-time)")
-	writeJSON(w, map[string]string{"report": report})
+	writeJSON(w, map[string]any{"report": report, "summaries": summaries})
+}
+
+func (s *Server) handleArtifact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		httpError(w, 405, "GET only")
+		return
+	}
+	index, err := strconv.Atoi(r.URL.Query().Get("block"))
+	if err != nil {
+		httpError(w, 400, "invalid block")
+		return
+	}
+	path, ok := s.sess.ArtifactPath(index)
+	if !ok {
+		httpError(w, 404, "artifact not found")
+		return
+	}
+	types := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".mp4": "video/mp4", ".webm": "video/webm", ".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+	mime, ok := types[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		httpError(w, 400, "unsupported artifact type")
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		httpError(w, 404, "artifact unavailable")
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		httpError(w, 404, "artifact unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
 }

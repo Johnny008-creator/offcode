@@ -5,6 +5,23 @@ after the 4-tier model campaign, so the team has a starting point instead
 of a blank page next session. Rough effort tags: **S** (a session or less),
 **M** (multi-session feature), **L** (a project in its own right).
 
+## Implementation update — 2026-10-09
+
+The remaining capabilities now have implementations or integration paths:
+local ComfyUI image/video/music tools, Pandoc document export, local voice I/O,
+reviewed LoRA datasets/training/retraining/deployment, a five-tier/LM Studio
+campaign runner, Windows CPU/memory support and CI, web artifact/diff previews
+and usage charts, and repository/git tools. These are **not all live-validated**.
+
+[IMPLEMENTATION.md](IMPLEMENTATION.md) is the current completion checklist;
+[EXTENSIONS.md](EXTENSIONS.md), [TRAINING.md](TRAINING.md), and
+[EVALUATION.md](EVALUATION.md) describe setup and exact limits. The older notes
+below retain the original rationale; references to features being absent are
+historical where superseded by these documents. Full runtime validation is
+blocked in the current development sandbox by socket restrictions and missing
+optional services, model weights and binaries. There is no trained personal
+adapter or generated AI image/video/music artifact yet.
+
 ## User-requested follow-ups
 
 - ~~**[M] Session persistence: `--resume` flag, multiple sessions per dir.**~~
@@ -228,7 +245,15 @@ different amounts of work depending on what runs on an 8GB-VRAM card:
   gemma4:12b correctly described a hand-built page's exact colors and
   text after calling preview_page. Click/scroll interactivity stayed out
   of scope — the vision-feedback loop was the actual value here.
-- **[M] Semantic codebase search.** Grep is exact-match only; embeddings
+- **[M] Semantic codebase search — implemented 2026-10-09.**
+  Available in TUI and web via `semantic_search`, using Ollama
+  `nomic-embed-text` and an incremental project-local cache. Regression
+  tests cover deleted files, edits during embedding, cancellation, protocol
+  errors, filesystem traversal, and TUI/web tool integration. Offline
+  validation: `go test -short -race ./...`, `go vet ./...`, and the Linux
+  build pass. Live model validation remains pending: this development
+  sandbox cannot reach Ollama or run Chromium/MCP integration tests.
+  Original motivation: Grep is exact-match only; embeddings
   over the codebase (even a small local embedding model) would let the
   agent find "the function that handles X" by meaning, not just literal
   string matches — complements rather than replaces the repo-map idea
