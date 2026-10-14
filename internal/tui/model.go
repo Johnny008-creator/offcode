@@ -32,6 +32,10 @@ const maxToolIterationsPerTurn = 25
 
 const maxPlanNudges = 2
 
+// emptyReplyNudge mirrors internal/webengine: sent once per turn when the
+// model ends a round with neither text nor tool calls.
+const emptyReplyNudge = "You stopped without replying. If the task is not done, continue it with real tool calls — the tool results above may say what went wrong. If it is done, give the user your final answer."
+
 var AppVersion = "0.2.2-dev"
 
 // maxToolCallParseRetries bounds how many extra attempts a turn gets after
@@ -99,6 +103,7 @@ type Model struct {
 
 	planSteps              []planStep
 	planNudges             int
+	emptyNudged            bool
 	actionsSincePlanUpdate int
 
 	pendingToolCalls     []backend.ToolCall
@@ -657,6 +662,7 @@ func (m Model) submitUserMessageDisplay(display, actual string) (tea.Model, tea.
 	m.messages = append(m.messages, backend.Message{Role: "user", Content: actual})
 	m.toolIterations = 0
 	m.planNudges = 0
+	m.emptyNudged = false
 	m.toolCallParseRetries = 0
 	m.promptStart = time.Now()
 	return m.startGeneration()
@@ -825,6 +831,15 @@ func (m Model) finishTurn(ev backend.StreamEvent) (tea.Model, tea.Cmd) {
 				"( stopped without a final answer — %d plan step(s) still unfinished after %d reminder(s): %s )",
 				len(incomplete), maxPlanNudges, strings.Join(incomplete, "; "),
 			)})
+		}
+		if len(incomplete) == 0 && strings.TrimSpace(msg.Content) == "" {
+			if !m.emptyNudged {
+				m.emptyNudged = true
+				m.pushBlock(block{kind: blockSystem, text: "( empty reply — asking the model to continue or answer )"})
+				m.messages = append(m.messages, backend.Message{Role: "user", Content: emptyReplyNudge})
+				return m.startGeneration()
+			}
+			m.pushBlock(block{kind: blockSystem, text: "( stopped without a final answer — the model replied with nothing after a reminder )"})
 		}
 		m.state = stateIdle
 		m.activity = ""

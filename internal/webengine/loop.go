@@ -97,6 +97,24 @@ func (s *Session) runTurn(ctx context.Context) {
 					len(incomplete), maxPlanNudges, strings.Join(incomplete, "; "),
 				)})
 			}
+			// Live-observed with qwen3:1.7b and no plan: after a round of
+			// failed tool calls the model replied with nothing at all, and
+			// the turn ended silently. Give it one chance to recover or
+			// answer, then say visibly that it stopped.
+			if len(incomplete) == 0 && strings.TrimSpace(msg.Content) == "" {
+				s.mu.Lock()
+				nudged := s.emptyNudged
+				s.emptyNudged = true
+				s.mu.Unlock()
+				if !nudged {
+					s.pushBlock(Block{Kind: BlockSystem, Text: "( empty reply — asking the model to continue or answer )"})
+					s.mu.Lock()
+					s.messages = append(s.messages, backend.Message{Role: "user", Content: emptyReplyNudge})
+					s.mu.Unlock()
+					continue
+				}
+				s.pushBlock(Block{Kind: BlockSystem, Text: "( stopped without a final answer — the model replied with nothing after a reminder )"})
+			}
 			s.finishRun(nil)
 			return
 		}

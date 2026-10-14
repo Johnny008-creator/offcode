@@ -56,3 +56,48 @@ func TestRunTurnExplainsExhaustedPlanNudges(t *testing.T) {
 		t.Fatalf("expected exactly one explanatory block, got %d: %+v", explains, s.blocks)
 	}
 }
+
+// TestRunTurnNudgesOnceOnEmptyReply covers qwen3:1.7b live behavior with no
+// plan: after failed tool calls it replied with nothing and the turn ended
+// silently. It now gets one reminder, and a visible note if that fails too.
+func TestRunTurnNudgesOnceOnEmptyReply(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		replies   []string
+		wantCalls int
+		wantStop  bool
+	}{
+		{"recovers", []string{"", "Done: wrote the files."}, 2, false},
+		{"stays empty", []string{"", "", ""}, 2, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := backend.NewClient("http://fake.test/v1")
+			client.HTTPClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				content := tc.replies[calls]
+				calls++
+				body := `{"message":{"role":"assistant","content":"` + content + `"},"done":true,"eval_count":1}` + "\n"
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})
+			s := &Session{
+				cfg:      config.Config{Backend: "ollama", BaseURL: "http://fake.test/v1", Model: "test-model"},
+				client:   client,
+				messages: []backend.Message{{Role: "user", Content: "do the thing"}},
+				status:   "generating",
+			}
+			s.runTurn(context.Background())
+			if calls != tc.wantCalls {
+				t.Fatalf("model calls=%d, want %d", calls, tc.wantCalls)
+			}
+			stopped := false
+			for _, b := range s.blocks {
+				if b.Kind == BlockSystem && strings.Contains(b.Text, "stopped without a final answer") {
+					stopped = true
+				}
+			}
+			if stopped != tc.wantStop {
+				t.Fatalf("stopped note=%v, want %v: %+v", stopped, tc.wantStop, s.blocks)
+			}
+		})
+	}
+}

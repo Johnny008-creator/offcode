@@ -26,6 +26,10 @@ import (
 const maxToolIterationsPerTurn = 25
 const maxPlanNudges = 2
 
+// emptyReplyNudge is sent once per turn when the model ends a round with
+// neither text nor tool calls.
+const emptyReplyNudge = "You stopped without replying. If the task is not done, continue it with real tool calls — the tool results above may say what went wrong. If it is done, give the user your final answer."
+
 type BlockKind string
 
 const (
@@ -120,6 +124,7 @@ type Session struct {
 	readPaths       map[string]bool
 	toolIterations  int
 	planNudges      int
+	emptyNudged     bool
 
 	tokensPerSec  float64
 	resumedCount  int
@@ -480,6 +485,7 @@ func (s *Session) Submit(text string, expected ...string) bool {
 	s.blocks = append(s.blocks, Block{Kind: BlockUser, Text: text})
 	s.toolIterations = 0
 	s.planNudges = 0
+	s.emptyNudged = false
 	ctx, cancel := context.WithCancel(context.Background())
 	s.turnCtx = ctx
 	s.cancelFn = cancel
@@ -504,6 +510,7 @@ func (s *Session) SubmitDisplay(display, actual string, expected ...string) bool
 	s.blocks = append(s.blocks, Block{Kind: BlockUser, Text: display})
 	s.toolIterations = 0
 	s.planNudges = 0
+	s.emptyNudged = false
 	ctx, cancel := context.WithCancel(context.Background())
 	s.turnCtx = ctx
 	s.cancelFn = cancel
