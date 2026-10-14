@@ -19,8 +19,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
 1. **DONE: web UI reliability pass.** Mobile layout, session switching across tabs,
    disconnected/error behavior, confirmation/questions, drafts, previews, voice.
    Add repeatable browser regression coverage and fix confirmed defects.
-2. **NEXT: live semantic search** with a local embedding model.
-3. Document export and speech transcription/synthesis with real local tools.
+2. **DONE: live semantic search** with local nomic-embed-text.
+3. **IN PROGRESS: document export and voice** with real local tools.
 4. Small-model LM Studio trial if available; record concrete blockers otherwise.
 5. Model/tool/plan reliability campaign, bounded by available hardware.
 6. Media workflow validation and training pipeline validation. Do not invent
@@ -52,3 +52,10 @@ artifacts exist under `~/.local/share/offcode-validation/2026-10-11/`, including
 Pandoc/Whisper tools, a small training model and adapter evaluation. Inspect and
 revalidate those before claiming dependencies are absent or repeating downloads.
 Do not commit their raw transcripts, machine paths or generated datasets.
+
+### Completed: semantic search
+
+`go test -v ./internal/semsearch -run 'TestSearchFindsSemanticMatch|TestSearchIncrementalReindex' -count=1`
+passed both tests against real local Ollama/nomic-embed-text, no skips. No code
+change was needed. Ollama was initially stopped and was started for validation.
+It should be stopped at campaign end if no other user started relying on it.
