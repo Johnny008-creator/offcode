@@ -9,8 +9,8 @@ ask the user to convert the file first.
 (paragraph by paragraph) and in the PDF's internal text order (which can
 occasionally differ from visual order for complex multi-column layouts).
 
-**What's lost in extraction:** formatting (bold/italic/font), tables
-(DOCX tables aren't extracted — only paragraph body text), images, and
+**What's lost in extraction:** formatting (bold/italic/font), table layout
+(DOCX table cell text is extracted in document order), images, and
 headers/footers. If the user needs table data specifically from a DOCX
 and the extracted text looks wrong/missing for that part, say so plainly
 rather than guessing at numbers that aren't actually in the extracted

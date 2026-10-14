@@ -36,27 +36,8 @@ func extractPDF(path string) (string, error) {
 	return text, nil
 }
 
-// docxParagraph/docxRun/docxBody mirror just enough of word/document.xml's
-// structure (a .docx is a zip of XML parts) to pull out paragraph text in
-// reading order, without a full OOXML dependency.
-type docxRun struct {
-	Text []string `xml:"t"`
-}
-type docxParagraph struct {
-	Runs []docxRun `xml:"r"`
-}
-type docxBody struct {
-	Paragraphs []docxParagraph `xml:"p"`
-}
-type docxDocument struct {
-	Body docxBody `xml:"body"`
-}
-
-// extractDOCX returns a .docx's paragraph text, one paragraph per line.
-// Tables, headers/footers, and images are not extracted — plain body
-// text covers the overwhelming majority of "read me this document"
-// requests, and the real OOXML structure is deep enough that chasing
-// full fidelity isn't worth it for an LLM-facing text tool.
+// extractDOCX returns body text in XML reading order, including table cells and
+// hyperlinks. Formatting, images, headers and footers are not extracted.
 func extractDOCX(path string) (string, error) {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
@@ -81,30 +62,61 @@ func extractDOCX(path string) (string, error) {
 	}
 	defer rc.Close()
 
-	data, err := io.ReadAll(rc)
-	if err != nil {
-		return "", fmt.Errorf("read word/document.xml: %w", err)
+	const maxDocumentXML = 32 << 20
+	if docXML.UncompressedSize64 > maxDocumentXML {
+		return "", fmt.Errorf("document XML exceeds 32 MiB extraction limit")
 	}
-
-	var doc docxDocument
-	if err := xml.Unmarshal(data, &doc); err != nil {
-		return "", fmt.Errorf("parse word/document.xml: %w", err)
-	}
-
-	var lines []string
-	for _, p := range doc.Body.Paragraphs {
-		var sb strings.Builder
-		for _, r := range p.Runs {
-			for _, t := range r.Text {
-				sb.WriteString(t)
+	decoder := xml.NewDecoder(io.LimitReader(rc, maxDocumentXML+1))
+	var text strings.Builder
+	inBody := false
+	const wordNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("parse word/document.xml: %w", err)
+		}
+		switch node := token.(type) {
+		case xml.StartElement:
+			if node.Name.Space != wordNS {
+				continue
+			}
+			if node.Name.Local == "body" {
+				inBody = true
+				continue
+			}
+			if !inBody {
+				continue
+			}
+			switch node.Name.Local {
+			case "t":
+				var value string
+				if err := decoder.DecodeElement(&value, &node); err != nil {
+					return "", fmt.Errorf("parse document text: %w", err)
+				}
+				text.WriteString(value)
+			case "tab":
+				text.WriteByte('\t')
+			case "br", "cr":
+				text.WriteByte('\n')
+			}
+		case xml.EndElement:
+			if node.Name.Space != wordNS {
+				continue
+			}
+			if node.Name.Local == "body" {
+				inBody = false
+			}
+			if inBody && node.Name.Local == "p" {
+				text.WriteByte('\n')
 			}
 		}
-		lines = append(lines, sb.String())
 	}
-
-	text := strings.TrimSpace(strings.Join(lines, "\n"))
-	if text == "" {
+	result := strings.TrimSpace(text.String())
+	if result == "" {
 		return "", fmt.Errorf("no extractable text found in document body")
 	}
-	return text, nil
+	return result, nil
 }

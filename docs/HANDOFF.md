@@ -20,8 +20,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
    disconnected/error behavior, confirmation/questions, drafts, previews, voice.
    Add repeatable browser regression coverage and fix confirmed defects.
 2. **DONE: live semantic search** with local nomic-embed-text.
-3. **IN PROGRESS: document export and voice** with real local tools.
-4. Small-model LM Studio trial if available; record concrete blockers otherwise.
+3. **DONE: document export and voice** with real local tools.
+4. **IN PROGRESS: small-model LM Studio trial.** Installing official llmster with shell PATH modification disabled; reuse existing small GGUF weights.
 5. Model/tool/plan reliability campaign, bounded by available hardware.
 6. Media workflow validation and training pipeline validation. Do not invent
    successful video/music generations or training-quality improvements.
@@ -59,3 +59,15 @@ Do not commit their raw transcripts, machine paths or generated datasets.
 passed both tests against real local Ollama/nomic-embed-text, no skips. No code
 change was needed. Ollama was initially stopped and was started for validation.
 It should be stopped at campaign end if no other user started relying on it.
+
+### Completed: real documents and voice
+
+Pandoc exported a Czech-text/table/code fixture to DOCX (10,827 bytes) and PDF
+(9,373 bytes; WeasyPrint engine). Both reject overwrite without altering the
+existing file. Real readback exposed missing DOCX table/link content: replaced
+top-level-only XML mapping with bounded streaming body extraction, covered by
+`TestExtractDOCXIncludesTablesLinksAndBreaks`. Both document readbacks now pass.
+eSpeak produced a 185,670-byte WAV; whisper.cpp/base transcribed the sentence
+successfully but misrecognized the product name. This is an integration pass,
+not a claim of perfect speech recognition or a physical microphone test.
+Evidence: local validation directory `2026-10-14/documents/validation.json`.
