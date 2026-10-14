@@ -60,7 +60,7 @@ func runEvalCase(args []string) {
 			case "write", "edit":
 				var a struct{ Path string }
 				_ = json.Unmarshal([]byte(state.Confirm.ToolArgs), &a)
-				allow = filepath.IsLocal(a.Path) && !strings.HasPrefix(filepath.Clean(a.Path), ".offcode")
+				allow = evalWriteAllowed(a.Path)
 			case "bash":
 				var a struct{ Command string }
 				_ = json.Unmarshal([]byte(state.Confirm.ToolArgs), &a)
@@ -94,4 +94,22 @@ func runEvalCase(args []string) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// evalWriteAllowed approves writes that stay inside the case's working
+// directory, whether the model names the file relatively or by its
+// absolute path (small models often echo the cwd from the system prompt).
+func evalWriteAllowed(path string) bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	if filepath.IsAbs(path) {
+		rel, err := filepath.Rel(cwd, path)
+		if err != nil {
+			return false
+		}
+		path = rel
+	}
+	return filepath.IsLocal(path) && !strings.HasPrefix(filepath.Clean(path), ".offcode")
 }
