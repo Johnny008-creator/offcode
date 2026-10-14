@@ -137,6 +137,7 @@
     <!-- ===== composer ===== -->
     <form class="composer" id="composer" autocomplete="off">
       <div class="cmp-box" id="cmpBox">
+        <div id="connectionStatus" role="status" class="hint">Connecting…</div>
         <textarea id="input" rows="1" placeholder="Ask anything…" aria-label="Message"></textarea>
         <div class="cmp-row">
           <div class="cmp-left"></div>
@@ -245,6 +246,11 @@
     <header class="modal-head"><h2 id="askQuestion"></h2></header>
     <div class="modal-body">
       <div class="ask-options" id="askOptions"></div>
+      <form id="askForm">
+        <label class="field"><span>Your answer</span><textarea id="askText" rows="2" placeholder="Or write your own answer" required></textarea></label>
+        <button class="btn primary" type="submit">Send answer</button>
+        <button class="btn" type="button" id="askStop">Stop task</button>
+      </form>
     </div>
   </div>
 </dialog>

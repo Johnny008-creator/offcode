@@ -35,6 +35,9 @@ jobs:
           test -z "$(gofmt -l cmd internal)"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      - name: Browser regression tests
+        if: runner.os == 'Linux'
+        run: go test ./internal/webserver -run TestBrowser -v
       - run: go vet ./...
       - run: go build -trimpath ./cmd/offcode
 

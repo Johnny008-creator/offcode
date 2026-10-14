@@ -42,6 +42,8 @@ const settingsDlg = el('settings');
 const toast = el('toast');
 
 let currentAudio = null;
+let connected = false;
+let sendPending = false;
 let lastStatus = null;
 let lastRenderKey = '';
 let lastSessionId = null;
@@ -54,6 +56,7 @@ let sendOnEnter = localStorage.getItem('offcode.sendOnEnter') !== 'false';
 if (window.marked) { /* renderer configured in markdown.js */ }
 
 async function api(path, body) {
+  if (body !== undefined && !connected) throw new Error("Disconnected. Wait for reconnection before trying again.");
   const opts = body !== undefined
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: lastSessionId, ...body }) }
     : {};
@@ -110,8 +113,11 @@ function artifactCard(url, name, blockIndex) {
   card.addEventListener('click', async () => {
     if (canLivePreview) {
       try {
+        const sessionId = lastSessionId;
         const res = await fetch(url);
+        if (!res.ok) throw new Error('Artifact is no longer available');
         const code = await res.text();
+        if (sessionId !== lastSessionId) return;
         openArtifact({ code, lang: ext === 'svg' ? 'svg' : 'html' });
       } catch (e) { showToast('Could not load: ' + e.message); }
     } else {
@@ -128,12 +134,15 @@ function readAloudButton(text) {
   btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19 8a7 7 0 0 1 0 8M15.5 10.5a3 3 0 0 1 0 3"/></svg>';
   btn.addEventListener('click', async () => {
     btn.disabled = true;
+    const sessionId = lastSessionId;
     try {
       if (currentAudio) { currentAudio.pause(); URL.revokeObjectURL(currentAudio.src); }
       const res = await fetch('/api/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, language: (navigator.language || 'en').split('-')[0] }) });
       if (!res.ok) throw new Error((await res.json()).error);
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      if (sessionId !== lastSessionId) return;
+      const url = URL.createObjectURL(blob);
       currentAudio = new Audio(url); currentAudio.onended = () => URL.revokeObjectURL(url);
       await currentAudio.play();
     } catch (e) { showToast(e.message); } finally { btn.disabled = false; }
@@ -504,8 +513,9 @@ el('confirmDeny').addEventListener('click', async () => {
 function showAsk(a) {
   askId = a.id;
   askQuestion.textContent = a.question;
+  el('askText').value = '';
   askOptions.innerHTML = '';
-  a.options.forEach((opt, i) => {
+  (a.options || []).forEach((opt, i) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'ask-option' + (i === a.recommended ? ' recommended' : '');
@@ -523,13 +533,27 @@ function showAsk(a) {
 document.addEventListener('keydown', (e) => {
   if (confirmDlg.open) {
     if (e.key === 'y') el('confirmAllow').click();
-    if (e.key === 'n' || e.key === 'Escape') el('confirmDeny').click();
+    if (e.key === 'n' || e.key === 'Escape') { e.preventDefault(); el('confirmDeny').click(); return; }
   }
-  if (e.key === 'Escape' && !confirmDlg.open && !askDlg.open) {
+  if (e.key === 'Escape' && !confirmDlg.open && !askDlg.open && !document.querySelector('dialog[open]')) {
     if (!stopBtn.hidden) stopBtn.click();
   }
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); newSession(); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); el('sbOpen').click(); }
+});
+
+el('askForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const answer = el('askText').value.trim();
+  if (!answer) return;
+  try { await api('/api/answer', { answer, id: askId }); askDlg.close(); } catch (e) { showToast(e.message); }
+});
+el('askStop').addEventListener('click', async () => {
+  try { await api('/api/stop', {}); askDlg.close(); } catch (e) { showToast(e.message); }
+});
+askDlg.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  showToast('Answer the question or use Stop to cancel the task.');
 });
 
 // ---- research ---------------------------------------------------------
@@ -613,9 +637,11 @@ let recordingTimer = null;
 micBtn.addEventListener('click', async () => {
   if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
   let stream;
+  const sessionId = lastSessionId;
   try {
     if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error('Audio recording is not supported in this browser.');
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (sessionId !== lastSessionId) { stream.getTracks().forEach((track) => track.stop()); return; }
     const recording = new MediaRecorder(stream); recorder = recording;
     const chunks = [];
     recording.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
@@ -623,8 +649,10 @@ micBtn.addEventListener('click', async () => {
       clearTimeout(recordingTimer); stream.getTracks().forEach((t) => t.stop());
       micBtn.classList.remove('rec'); micBtn.disabled = true;
       try {
+        if (sessionId !== lastSessionId || recording.discard) return;
         const res = await fetch('/api/transcribe', { method: 'POST', body: new Blob(chunks, { type: recording.mimeType }) });
         const data = await res.json(); if (!res.ok) throw new Error(data.error);
+        if (sessionId !== lastSessionId) return;
         input.value = [input.value, data.text].filter(Boolean).join(' '); input.dispatchEvent(new Event('input'));
       } catch (e) { showToast(e.message); } finally { recorder = null; micBtn.disabled = false; }
     };
@@ -641,17 +669,27 @@ micBtn.addEventListener('click', async () => {
 composer.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  input.style.height = 'auto';
-  try { await api('/api/message', { text }); } catch (e) { showToast(e.message); }
+  if (!text || sendPending || !connected || lastStatus !== 'idle') return;
+  const sessionId = lastSessionId;
+  const draft = input.value;
+  sendPending = true;
+  updateComposer();
+  try {
+    await api('/api/message', { text, session_id: sessionId });
+    drafts.delete(sessionId);
+    if (lastSessionId === sessionId && input.value === draft) {
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+    }
+  } catch (e) { showToast(e.message); }
+  finally { sendPending = false; updateComposer(); }
 });
 input.addEventListener('input', () => {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 320) + 'px';
 });
 input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && sendOnEnter) { e.preventDefault(); composer.requestSubmit(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && sendOnEnter) { e.preventDefault(); composer.requestSubmit(); }
 });
 stopBtn.addEventListener('click', async () => { try { await api('/api/stop', {}); } catch { /* ignore */ } });
 
@@ -680,7 +718,7 @@ function renderActivity(state) {
   if (state.status === 'generating' || state.status === 'confirming' || state.status === 'asking') {
     activityChip.hidden = false;
     activityChip.textContent = state.activity || 'working…';
-    stopBtn.hidden = state.status !== 'generating';
+    stopBtn.hidden = false;
   } else {
     stopBtn.hidden = true;
     if (state.tokens_per_sec > 0) { activityChip.hidden = false; activityChip.textContent = state.tokens_per_sec.toFixed(1) + ' tok/s'; }
@@ -694,7 +732,8 @@ function render(state) {
     input.value = drafts.get(state.session_id) || '';
     input.dispatchEvent(new Event('input'));
     closeArtifact();
-    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    if (currentAudio) { currentAudio.pause(); URL.revokeObjectURL(currentAudio.src); currentAudio = null; }
+    if (recorder && recorder.state === 'recording') { recorder.discard = true; recorder.stop(); }
     showToast('Active conversation changed in another tab or window');
   }
   modelName.textContent = state.model ? (state.model_display || state.model) : 'No model';
@@ -711,8 +750,7 @@ function render(state) {
   if (state.session_id !== lastSessionId || (lastStatus !== 'idle' && state.status === 'idle')) refreshSessions();
   lastSessionId = state.session_id;
 
-  input.disabled = state.status !== 'idle';
-  sendBtn.disabled = state.status !== 'idle' || !input.value.trim();
+
 
   if (state.confirm) showConfirm(state.confirm);
   else if (confirmDlg.open) confirmDlg.close();
@@ -724,13 +762,29 @@ function render(state) {
   else if (state.model && modelPickerShown) { modelPickerShown = false; closeModelMenu(); }
 
   lastStatus = state.status;
+  updateComposer();
 }
-input.addEventListener('input', () => { sendBtn.disabled = input.disabled || !input.value.trim(); });
-
+function updateComposer() {
+  input.disabled = sendPending || (lastStatus !== null && lastStatus !== 'idle');
+  sendBtn.disabled = !connected || input.disabled || !input.value.trim();
+}
+input.addEventListener('input', updateComposer);
+function setConnected(value) {
+  connected = value;
+  el('connectionStatus').hidden = value;
+  el('connectionStatus').textContent = value ? '' : 'Disconnected — reconnecting. Your draft is kept.';
+  updateComposer();
+}
+window.addEventListener('offline', () => setConnected(false));
 function connect() {
   const es = new EventSource('/api/events');
+  es.onerror = () => setConnected(false);
   es.onmessage = (ev) => {
-    try { render(JSON.parse(ev.data)); } catch (e) { console.error('bad state payload', e); }
+    try {
+      const state = JSON.parse(ev.data);
+      render(state);
+      setConnected(true);
+    } catch (e) { console.error('bad state payload', e); }
   };
 }
 

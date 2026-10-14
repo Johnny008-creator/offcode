@@ -40,3 +40,13 @@ must use placeholders. Do not run project hooks from untrusted repositories.
 
 See [LICENSING.md](LICENSING.md) before contributing. Do not submit code or
 assets you are not entitled to share. Preserve dependency copyright notices.
+
+Browser regressions (Chromium/Chrome required; no model required):
+
+```sh
+go test ./internal/webserver -run TestBrowser -v
+```
+
+These use isolated user directories, a controlled model response, and the real
+HTTP/SSE server. They check mobile widths, sidebar behavior, rejected-message
+draft preservation, session changes across tabs, custom answers and offline UI.
