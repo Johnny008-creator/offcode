@@ -742,3 +742,23 @@ binaries rebuilt. A real PTY run selected only GPU using arrow/Space keys and
 verified the old saved server fallback disappeared; redirected-input setup
 selected only the server. Windows CI additionally checks PowerShell forwarding
 of the server-only selection. Native Windows GUI execution remains pending.
+
+## 2026-10-14 — Preserved context only when one is actually configured
+
+Live plan-reliability runs on the RX 6500 XT showed Ollama logging
+`truncating input prompt limit=2050 prompt=4299` with `n_ctx_slot = 4096`:
+qwen3.5:4b lost the user's request and hallucinated an unrelated project.
+Cause: with no `~/.offcode/setup.json`, `setup.Load` defaults to preserve
+mode, `Keeps("context")` is true, and `Apply` set `OFFCODE_NUM_CTX=0`, so
+no `num_ctx` was sent and Ollama used its VRAM-based 4096 default — the
+exact failure fixed on 2026-10-10, back for every user without a custom
+context.
+
+The 2026-10-11 intent (do not override a context the user chose) is kept,
+but only applies when such a choice exists: `Apply` now disables the
+request context only if `OLLAMA_CONTEXT_LENGTH` is set (current or saved),
+and the native client skips `num_ctx` when the model's Modelfile parameters
+already set it (`/api/show`, cached per model). An explicit
+`OFFCODE_NUM_CTX` still wins over both. Regressions:
+`TestContextPreservedOnlyWhenConfigured`,
+`TestStreamChatNativeRespectsModelfileNumCtx`.

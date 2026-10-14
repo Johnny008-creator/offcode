@@ -85,3 +85,41 @@ func TestPreservedOllamaOptions(t *testing.T) {
 		t.Fatalf("must leave server settings untouched: %s", data)
 	}
 }
+
+// A Modelfile's own num_ctx is the user's choice and must not be overridden
+// by offcode's default, unless OFFCODE_NUM_CTX is set explicitly.
+func TestStreamChatNativeRespectsModelfileNumCtx(t *testing.T) {
+	for _, tc := range []struct {
+		name, env string
+		want      bool // options.num_ctx sent
+	}{
+		{"modelfile wins over default", "", false},
+		{"explicit env wins over modelfile", "16384", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env != "" {
+				t.Setenv("OFFCODE_NUM_CTX", tc.env)
+			}
+			c := NewClient("http://ollama.test/v1")
+			var chatBody string
+			c.HTTPClient.Transport = embedTransport(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Path == "/api/show" {
+					resp := `{"parameters":"num_ctx                        32768\ntemperature                    1"}`
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(resp)), Header: make(http.Header)}, nil
+				}
+				raw, _ := io.ReadAll(r.Body)
+				chatBody = string(raw)
+				resp := `{"message":{"role":"assistant","content":"ok"},"done":true}` + "\n"
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(resp)), Header: make(http.Header)}, nil
+			})
+			for ev := range c.StreamChatNative(context.Background(), ChatRequest{Model: "custom"}, ThinkDefault) {
+				if ev.Kind == EventError {
+					t.Fatal(ev.Err)
+				}
+			}
+			if got := strings.Contains(chatBody, "num_ctx"); got != tc.want {
+				t.Fatalf("num_ctx sent=%v, want %v: %s", got, tc.want, chatBody)
+			}
+		})
+	}
+}

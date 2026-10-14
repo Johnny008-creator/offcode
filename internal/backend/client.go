@@ -8,12 +8,16 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+
+	modelfileCtxMu sync.Mutex
+	modelfileCtx   map[string]bool // model -> its Modelfile sets num_ctx
 }
 
 func NewClient(baseURL string) *Client {

@@ -144,6 +144,10 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 			Think:    think.nativeValue(),
 			Options:  numCtxOption(),
 		}
+		if _, explicit := os.LookupEnv("OFFCODE_NUM_CTX"); !explicit && nreq.Options != nil && c.modelfileSetsNumCtx(ctx, req.Model) {
+			// The model's own Modelfile picked a context; don't override it.
+			nreq.Options = nil
+		}
 
 		body, err := json.Marshal(nreq)
 		if err != nil {
@@ -248,4 +252,44 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 	}()
 
 	return events
+}
+
+// modelfileSetsNumCtx reports whether the model's Modelfile parameters set
+// num_ctx, via Ollama's /api/show. Cached per model; lookup failures count
+// as "not set" so offcode's default still protects against truncation.
+func (c *Client) modelfileSetsNumCtx(ctx context.Context, model string) bool {
+	c.modelfileCtxMu.Lock()
+	if v, ok := c.modelfileCtx[model]; ok {
+		c.modelfileCtxMu.Unlock()
+		return v
+	}
+	c.modelfileCtxMu.Unlock()
+
+	set := false
+	body, _ := json.Marshal(map[string]string{"model": model})
+	root := strings.TrimSuffix(c.BaseURL, "/v1")
+	if httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/show", bytes.NewReader(body)); err == nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+		if resp, err := c.HTTPClient.Do(httpReq); err == nil {
+			var parsed struct {
+				Parameters string `json:"parameters"`
+			}
+			if resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&parsed) == nil {
+				for _, line := range strings.Split(parsed.Parameters, "\n") {
+					if f := strings.Fields(line); len(f) > 0 && f[0] == "num_ctx" {
+						set = true
+					}
+				}
+			}
+			resp.Body.Close()
+		}
+	}
+
+	c.modelfileCtxMu.Lock()
+	if c.modelfileCtx == nil {
+		c.modelfileCtx = map[string]bool{}
+	}
+	c.modelfileCtx[model] = set
+	c.modelfileCtxMu.Unlock()
+	return set
 }

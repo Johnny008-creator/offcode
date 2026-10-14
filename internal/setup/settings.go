@@ -190,7 +190,13 @@ func Apply(s Settings) {
 			}
 		}
 	}
-	if s.Keeps("context") {
+	// Preserving context only means something when a server-wide context is
+	// actually configured. With none, Ollama falls back to a VRAM-based
+	// default (4096 on 8GB cards), which truncates offcode's own ~4K-token
+	// system prompt — observed live 2026-10-14 — so keep offcode's explicit
+	// request context then. Per-model Modelfile num_ctx is honored by the
+	// backend client itself.
+	if s.Keeps("context") && os.Getenv("OLLAMA_CONTEXT_LENGTH") != "" {
 		if _, ok := os.LookupEnv("OFFCODE_NUM_CTX"); !ok {
 			_ = os.Setenv("OFFCODE_NUM_CTX", "0")
 		}

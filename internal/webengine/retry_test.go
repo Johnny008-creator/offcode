@@ -13,7 +13,14 @@ import (
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+// RoundTrip answers the backend's Modelfile lookup (/api/show) itself, so
+// test transports only see, and count, chat requests.
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Path == "/api/show" {
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	}
+	return f(r)
+}
 
 func newTestSession(transport roundTripFunc) *Session {
 	client := backend.NewClient("http://fake.test/v1")

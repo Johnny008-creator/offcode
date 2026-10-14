@@ -139,3 +139,19 @@ func TestPreservationChoices(t *testing.T) {
 		t.Fatal(some, err)
 	}
 }
+
+// Preserving context with nothing configured must not disable offcode's
+// request context: Ollama's VRAM default (4096 on 8GB) truncated offcode's
+// system prompt live on 2026-10-14.
+func TestContextPreservedOnlyWhenConfigured(t *testing.T) {
+	isolateBackendEnv(t)
+	Apply(Settings{OllamaMode: "preserve"})
+	if _, ok := os.LookupEnv("OFFCODE_NUM_CTX"); ok {
+		t.Fatal("request context disabled although no server context is configured")
+	}
+	isolateBackendEnv(t)
+	Apply(Settings{OllamaMode: "preserve", OllamaEnv: map[string]string{"OLLAMA_CONTEXT_LENGTH": "16384"}})
+	if os.Getenv("OFFCODE_NUM_CTX") != "0" || os.Getenv("OLLAMA_CONTEXT_LENGTH") != "16384" {
+		t.Fatal("configured server context not preserved")
+	}
+}
