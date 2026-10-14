@@ -21,8 +21,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
    Add repeatable browser regression coverage and fix confirmed defects.
 2. **DONE: live semantic search** with local nomic-embed-text.
 3. **DONE: document export and voice** with real local tools.
-4. **IN PROGRESS: small-model LM Studio trial.** Installing official llmster with shell PATH modification disabled; reuse existing small GGUF weights.
-5. Model/tool/plan reliability campaign, bounded by available hardware.
+4. **DONE: small-model LM Studio trial** (llmster 0.0.25, qwen3-1.7b, CPU).
+5. **NEXT:** Model/tool/plan reliability campaign, bounded by available hardware.
 6. Media workflow validation and training pipeline validation. Do not invent
    successful video/music generations or training-quality improvements.
 7. Reconcile historical roadmap notes with verified results; final checks.
@@ -71,3 +71,32 @@ eSpeak produced a 185,670-byte WAV; whisper.cpp/base transcribed the sentence
 successfully but misrecognized the product name. This is an integration pass,
 not a claim of perfect speech recognition or a physical microphone test.
 Evidence: local validation directory `2026-10-14/documents/validation.json`.
+
+### Completed: LM Studio small-model trial
+
+llmster 0.0.25 (headless LM Studio, CPU-only here) served qwen3-1.7b GGUF,
+reused from the existing Ollama blob, at 16384 context, ~6 tok/s. Ten-task
+`scripts/eval/run.py --backend lmstudio` campaign plus a rerun of tasks
+6/7/10 after harness fixes. Evidence: local validation directories
+`2026-10-14/lmstudio-campaign` and `lmstudio-campaign-rerun`.
+
+Real defects found and fixed (commits 7b8f622, 9fb493a):
+- LM Studio streams thinking as `reasoning_content`; only Ollama's `reasoning`
+  was read, so the trace was silently dropped. Now both; reasoning blocks
+  confirmed in live transcripts after the fix.
+- Model list included LM Studio's embedding model; `ContextLength` returned 0.
+  Both now use LM Studio `/api/v0/models` (type, `loaded_context_length`),
+  with fallback to `/v1/models` for other OpenAI-compatible servers.
+- `eval-case` denied writes given as absolute paths inside the case
+  directory, failing tasks 6/7 for harness reasons. Fixed and tested.
+
+Results (manual review): 1 tools listed; 2 hello.txt correct; 3 a/b/c correct
+with a plan; 4 asked for a choice as requested; 5 SearXNG search summarized
+correctly; 6 notes.html written (rerun); 7 config.json written, then repeated
+edits with nonexistent old_string, overwrote it as non-JSON and falsely claimed
+success (model quality, tools reported errors correctly); 8 a custom `find`
+command was denied by the harness bash allowlist, so the model only described
+the command; 9 three linked files written; 10 timed out at 300 s, rerun at 600 s
+wrote calculator.html, but two buttons have broken quotes and `clearDisplay`
+is undefined, so it does not fully work. Conclusion: the LM Studio path is
+functional end-to-end; 1.7B quality is the limit, not the backend.
