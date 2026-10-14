@@ -1,9 +1,22 @@
+# Build outputs
 /bin/
 /dist/
-*.exe
-.DS_Store
-/.offcode/semindex.json
-/.offcode/semindex-*.json
+/offcode
+/offcode.exe
+*.test
+coverage.out
 
+# Local configuration, conversations, indexes and credentials
+.offcode/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local tooling
+.DS_Store
+Thumbs.db
 __pycache__/
 *.pyc
+.venv/

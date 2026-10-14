@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,12 @@ import (
 // instead of surfacing that something went wrong.
 func TestWriteRejectsCorruptedContentKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.html")
-	argsJSON := `{"path":"` + path + `","":"content>\n<!DOCTYPE html>"}`
-	_, err := Dispatch("write", argsJSON)
+	args, err := json.Marshal(map[string]string{"path": path, "": "content>\n<!DOCTYPE html>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsJSON := string(args)
+	_, err = Dispatch("write", argsJSON)
 	if err == nil {
 		t.Fatal("expected an error for a missing content key")
 	}
@@ -32,8 +37,12 @@ func TestWriteRejectsCorruptedContentKey(t *testing.T) {
 // omitting "content" (not sending a corrupted stray key).
 func TestWriteAllowsDeliberateEmptyFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.txt")
-	argsJSON := `{"path":"` + path + `"}`
-	if _, err := Dispatch("write", argsJSON); err != nil {
+	args, err := json.Marshal(map[string]string{"path": path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsJSON := string(args)
+	if _, err = Dispatch("write", argsJSON); err != nil {
 		t.Fatalf("expected a deliberate empty-content write to succeed, got: %v", err)
 	}
 	data, err := os.ReadFile(path)

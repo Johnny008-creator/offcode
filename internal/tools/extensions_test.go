@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -69,6 +70,7 @@ func TestExtensionGatingHidesUnconfiguredTools(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PATH", emptyPath)
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("OFFCODE_WHISPER_MODEL", "")
 
 	names := toolNames(Definitions())
@@ -87,6 +89,9 @@ func TestExtensionGatingHidesUnconfiguredTools(t *testing.T) {
 func TestExtensionGatingOffersConfiguredTools(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{"pandoc", "espeak-ng"} {
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -95,6 +100,7 @@ func TestExtensionGatingOffersConfiguredTools(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	offcodeDir := filepath.Join(home, ".offcode")
 	if err := os.MkdirAll(offcodeDir, 0755); err != nil {
 		t.Fatal(err)

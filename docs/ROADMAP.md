@@ -1,132 +1,28 @@
 # offcode roadmap / backlog
 
-## Handoff — 2026-10-11 (Codex: installation and updates, unreleased)
+## Current development status
 
-The user's new installer/update requests take priority over the older live-test
-backlog below. Implemented in the working tree:
+Installation preferences, model downloads and automatic updates are implemented
+on the development branch and await a new release. See [README](../README.md)
+for usage and [DECISIONS](DECISIONS.md) for design details.
 
-- Follow-up: independent preservation checkboxes for server, GPU, model path,
-  context, parallelism, cache and keep-alive. GUI uses native checkboxes; console
-  uses arrow/Space selection. `-preserve=server,gpu` supports automation.
-- Shared `offcode setup` wizard/flags wired into GUI, cmd and PowerShell
-  installers: preserve Ollama GPU/server/context settings (default), auto or
-  external server; model multiselection; update auto/notify/off preferences.
-- `OLLAMA_HOST` resolution, Windows environment fallback, loopback-only
-  autostart with correct port, preserved context settings, and doctor GPU/CPU
-  allocation output. The user's exact Windows CPU-only failure is **not yet
-  reproduced**; no claim that an unsupported GPU/driver has been fixed.
-- Selected tier/custom model downloads with installed-model reuse, resumable
-  retries and embedded system prompts/skills. Optional Windows winget install
-  for missing Ollama; existing installations are not reset.
-- Startup stable-release checks and verified automatic updates with offline
-  timeout, rollback copy, process locking and relaunch. Manual `offcode update`
-  and `-check`; development binaries do not self-update. Release workflow
-  stamps versions and generates checksums.
+Before the next release:
 
-Validation and design details are appended in DECISIONS.md; usage is in README.
-No release was published: v0.2.1 remains the latest release from the earlier
-session. To ship these changes, run native Windows CI/installer checks and
-publish a new tagged release. Old installs need that release installed once.
-The previous mobile/multi-tab, LM Studio and optional-service live-test gaps
-below remain outstanding.
+- Complete native Windows installer and setup validation.
+- Exercise mobile layouts and multi-tab session behavior in a real browser.
+- Run a live LM Studio campaign and semantic ranking tests.
+- Validate optional video/music, transcription, document export and training
+  against installed dependencies. Offline protocol tests are not live validation.
+- Evaluate model reliability when updating plans after tool work.
 
----
+Historical implementation and test evidence is tracked in
+[IMPLEMENTATION](IMPLEMENTATION.md). Hardware-specific results do not guarantee
+performance on other machines. No release date is committed.
 
-## Handoff — 2026-10-11 (Claude session → next session, possibly Codex)
-
-Working tree is clean, everything below is committed and pushed to
-`origin/master` (`c1a511b`). No background processes left running
-(Ollama and `offcode web` were both stopped at end of session).
-
-**Released:** `v0.2.1` is tagged and published on GitHub Releases —
-Linux binary, Windows exe, Windows installer, all built by
-`.github/workflows/release.yml` and verified to actually work (the
-Linux binary was run and printed the right version; the release
-workflow itself succeeded on the first real tag push, twice).
-
-**Done this session, all live-tested against a real local Ollama
-unless noted:**
-1. Five real bugs found via live multi-tier testing and fixed — see
-   `docs/DECISIONS.md` for the full story on each: extension tools
-   offered without their dependencies configured; Ollama's native
-   tool-call-template parser erroring out the whole turn instead of
-   being retried; `write` silently producing an empty file on a
-   corrupted tool-call argument; `num_ctx` never being set explicitly
-   (Ollama's own auto-sizing picked a window too small for offcode's
-   own system prompt, silently truncating turns); a turn ending with
-   unfinished plan steps and literally no visible answer.
-2. ComfyUI image generation set up and verified end-to-end (CPU-only —
-   this dev machine's GPU has no ROCm support) — a real generated PNG
-   matching its prompt.
-3. Windows installer: GUI (Inno Setup, `ChangesEnvironment=yes`), a
-   pure-cmd `.bat`, and a PowerShell `.ps1` — all broadcast the PATH
-   change so a *new* terminal picks it up immediately; none can refresh
-   an *already-open* terminal (a real Windows console limitation, not
-   fixable from an installer — documented plainly instead).
-4. `offcode`/`offcode web` now auto-start `ollama serve` when it isn't
-   already running and the binary is on PATH (`cmd/offcode/ollamaboot.go`),
-   detached so a Ctrl+C on offcode doesn't also kill it.
-5. **The web UI was redesigned from scratch** — see
-   `internal/webserver/static/`: a 10-theme (light+dark each) ChatGPT/
-   Grok-style interface ported from a sibling project's polished chat
-   UI (`~/Downloads/ai` on this machine, called "Offcode Online" — a
-   *different*, cloud-hosted app with accounts/Ollama-Cloud/Netlify
-   backend), stripped of everything that only makes sense there
-   (login, profiles, $-cost usage, server-synced theme prefs, any CDN
-   dependency) and rewired to offcode's own existing Go backend
-   (SSE `/api/state`, confirm/ask/research/model/mode/session
-   endpoints — nothing in the backend API changed, only the frontend).
-   Live-tested in a real Chrome tab against a real `qwen3:8b` turn:
-   theme switching, model picker, mode picker, session sidebar, and
-   message rendering all confirmed working. Two real bugs found and
-   fixed that way: `state.blocks` is JSON `null` (not `[]`) before any
-   message exists and crashed the first render; the transcript was
-   fully torn down and rebuilt on *every* SSE tick (the backend pushes
-   a full snapshot on every streamed token), replaying every message's
-   entrance animation and visibly flickering the whole screen during
-   generation — fixed by diffing per-turn and only swapping changed
-   nodes (`renderTranscript` in `internal/webserver/static/js/app.js`).
-
-**Known gaps / what's next, roughly in order of value:**
-- The new web UI's **mobile-responsive and multi-tab-session edge
-  cases are unexercised** — only tested in one desktop Chrome tab
-  against one session. Worth a real pass before trusting it fully.
-- **LM Studio backend still has zero live testing** — every live model
-  test this whole project has used Ollama.
-- **Foundry (gpt-oss:20b) needs ~14.9GB RAM+VRAM combined**, uncomfortably
-  close to this dev machine's 15GB total — it loaded and answered
-  correctly once (confirmed it holds the "Offcode Foundry" identity,
-  never reveals the underlying model), but a second attempt hit an
-  unrelated AMD GPU driver crash (`amdgpu ... ring comp_1.3.0 timeout`)
-  after ~2.5h of continuous heavy GPU use this session. Not an offcode
-  bug — a hardware/driver limitation under sustained load on this
-  specific low-end card.
-- **None of the three Windows installers have run on a real Windows
-  machine** — only cross-built, vet'd, and hand-reviewed on Linux.
-- Video/music generation, real speech transcription (whisper-cli),
-  and actual PDF/DOCX export (Pandoc) remain configured-but-unexercised
-  — see `docs/IMPLEMENTATION.md`'s "still blocked" list for the exact
-  missing local dependencies on this machine.
-- Anvil (gemma4:12b) has a real, reproducible weakness independent of
-  anything fixed above: it often does real work (writes a correct file)
-  but never calls `plan_update` to mark its own step done — the
-  "unfinished plan steps, no answer" fix above makes this *visible*
-  instead of silent, but doesn't make the model more reliable about it.
-  Worth a prompt-engineering pass if it keeps showing up.
-
-Design rationale for everything above lives in `docs/DECISIONS.md`
-(append, don't rewrite — it's a running log, each entry is
-self-contained with what was found and how it was verified). This is
-the user's own dev machine, not a clean CI box — Ollama and any other
-backend service need to be reachable (offcode now auto-starts
-`ollama serve` itself if it's on PATH and not already running) before
-testing anything live.
-
----
+## Backlog
 
 Ideas for future work, not commitments or a schedule. Written 2026-10-03
-after the 4-tier model campaign, so the team has a starting point instead
-of a blank page next session. Rough effort tags: **S** (a session or less),
+after the 4-tier model campaign, as a starting point for future contributions. Rough effort tags: **S** (a session or less),
 **M** (multi-session feature), **L** (a project in its own right).
 
 ## Implementation update — 2026-10-09

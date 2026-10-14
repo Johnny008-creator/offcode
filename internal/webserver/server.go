@@ -43,6 +43,10 @@ func New(cfg config.Config) *Server {
 }
 
 func listen(addr string, cfg config.Config) (*Server, net.Listener, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		return nil, nil, fmt.Errorf("web server requires a loopback IP address")
+	}
 	s := New(cfg)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -60,7 +64,7 @@ func Serve(addr string, cfg config.Config) error {
 		return err
 	}
 	fmt.Printf("offcode web: listening on http://%s (local only)\n", l.Addr().String())
-	return http.Serve(l, s.mux)
+	return http.Serve(l, s.handler())
 }
 
 // Start binds addr immediately (so a bind failure, e.g. "port already in
@@ -73,7 +77,7 @@ func Start(addr string, cfg config.Config) (actualAddr string, err error) {
 		return "", err
 	}
 	go func() {
-		_ = http.Serve(l, s.mux)
+		_ = http.Serve(l, s.handler())
 	}()
 	return l.Addr().String(), nil
 }

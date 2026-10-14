@@ -67,6 +67,9 @@ ArchitecturesInstallIn64BitMode=x64
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+Source: "..\..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSING.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\docs\licenses\*"; DestDir: "{app}\docs\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Built by the CI job / the developer before invoking iscc — see the build
 ; command in the header comment. Not checked into the repo.
 Source: "..\..\bin\offcode.exe"; DestDir: "{app}"; Flags: ignoreversion

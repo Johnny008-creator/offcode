@@ -1,5 +1,10 @@
 # offcode
 
+[![Build and test](https://github.com/Johnny008-creator/offcode/actions/workflows/test.yml/badge.svg)](https://github.com/Johnny008-creator/offcode/actions/workflows/test.yml)
+
+Experimental software. See [security](SECURITY.md), [privacy](docs/PRIVACY.md),
+[contributing](CONTRIBUTING.md), and [licensing status](LICENSING.md).
+
 A Claude-Code-like agentic coding CLI built exclusively for local models —
 Ollama, LM Studio, and anything else that speaks the OpenAI-compatible
 `chat/completions` API. Cross-platform: Linux and Windows.
@@ -57,7 +62,11 @@ model from what the backend has loaded · `/effort` — set reasoning effort
 
 ## Build
 
+Requires Git and Go **1.27.2 or newer**. From a fresh checkout:
+
 ```sh
+git clone https://github.com/Johnny008-creator/offcode.git
+cd offcode
 go build -o bin/offcode ./cmd/offcode
 ```
 
@@ -93,11 +102,20 @@ Flags:
 - `-base-url` — override the backend's default OpenAI-compatible URL
 - `-mode` — `plan` (read-only), `default` (confirm writes/bash), or `auto`
 
-`web_search`/`fetch_url` need a local SearXNG instance at
+`web_search` needs a local SearXNG instance at
 `127.0.0.1:8888` — see [docs/DECISIONS.md](docs/DECISIONS.md) for the
 one-time `docker run` setup (`--restart unless-stopped`, so once it's up
-it just keeps running). Without it those two tools return an error; the
-rest of offcode works fine either way.
+it just keeps running). Without it `web_search` returns an error. `fetch_url` contacts the requested
+URL directly and does not require SearXNG.
+
+## Web UI
+
+```sh
+./bin/offcode web
+```
+
+Open `http://127.0.0.1:7878`. The server is local-only and has no login;
+do not expose it through a public proxy. See [SECURITY.md](SECURITY.md).
 
 ## Windows installer
 

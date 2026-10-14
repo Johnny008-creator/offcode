@@ -1,10 +1,9 @@
 # Roadmap implementation status — 2026-10-09
 
-The user requested the remaining roadmap capabilities. Implementation and live
-verification are tracked separately: a mock protocol test is not a successful
+Implementation and live verification are tracked separately: a mock protocol test is not a successful
 model run, and a skipped integration test is not a pass.
 
-## Implemented in the working tree
+## Implemented
 
 - [x] Semantic search in TUI/web, incremental indexing, cache invalidation and
   offline regression coverage.
@@ -44,7 +43,7 @@ or automatic model promotion is installed.
 - `go vet ./...`: passed.
 - `GOOS=windows GOARCH=amd64 go vet ./...`: passed.
 - Linux build and Windows amd64 cross-build: passed.
-- `node --check internal/webserver/static/app.js`: passed.
+- `node --check internal/webserver/static/js/app.js`: passed.
 - Training dataset/token-masking tests: passed without ML dependencies.
 - Real Czech eSpeak NG synthesis: produced a WAV, FFprobe duration 3.743447 s.
 - CLI repository map and git summary: exercised on this checkout.
