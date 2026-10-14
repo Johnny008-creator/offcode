@@ -12,7 +12,7 @@ require (
 	github.com/chromedp/chromedp v0.19.1
 	github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	golang.org/x/sys v0.44.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
