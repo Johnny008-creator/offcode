@@ -22,7 +22,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
 2. **DONE: live semantic search** with local nomic-embed-text.
 3. **DONE: document export and voice** with real local tools.
 4. **DONE: small-model LM Studio trial** (llmster 0.0.25, qwen3-1.7b, CPU).
-5. **NEXT:** Model/tool/plan reliability campaign, bounded by available hardware.
+5. **IN PROGRESS (paused 2026-10-14): model/tool/plan reliability campaign.**
+   See "Paused: plan reliability" below for exact resume steps.
 6. Media workflow validation and training pipeline validation. Do not invent
    successful video/music generations or training-quality improvements.
 7. Reconcile historical roadmap notes with verified results; final checks.
@@ -100,3 +101,50 @@ the command; 9 three linked files written; 10 timed out at 300 s, rerun at 600 s
 wrote calculator.html, but two buttons have broken quotes and `clearDisplay`
 is undefined, so it does not fully work. Conclusion: the LM Studio path is
 functional end-to-end; 1.7B quality is the limit, not the backend.
+
+### Paused: plan reliability (item 5)
+
+Paused on the owner's request mid-campaign. All work below is committed
+locally on master; **not pushed** — the owner wants one push once the whole
+batch is finished (do not push per chunk, overriding the line above).
+
+Fixes found by this campaign (all with regression tests):
+- 204709a: a model ending a round with empty content and no tool calls (no
+  plan) ended the turn silently. Web engine and TUI now nudge once, then show
+  "stopped without a final answer".
+- 412ac99 (important): preserve mode is the default even without
+  `~/.offcode/setup.json` and set `OFFCODE_NUM_CTX=0`, so no `num_ctx` was
+  sent; Ollama used 4096 on the 8GB card and truncated offcode's ~4.3K-token
+  prompt to 2050 (`truncating input prompt` in the Ollama log). Now the
+  request context is omitted only when `OLLAMA_CONTEXT_LENGTH` is set or the
+  model's Modelfile sets `num_ctx`. Live-verified: `n_ctx_slot = 8192`,
+  `truncated = 0`. See DECISIONS.md 2026-10-14.
+
+Tool: `scripts/eval/plan_reliability.py` (4 short multi-step tasks with
+mechanical checks; records plan_set/plan_update use, nudges, unfinished
+stops). Results so far, valid runs with the fixed context, 2 repeats each:
+
+| model | checks passed | plan_set used | notes |
+|---|---|---|---|
+| qwen3:1.7b | 5/8 | 0/8 | notes: mangled absolute paths outside cwd (correctly denied) then looped; config: 1/2 |
+| qwen3:8b | 8/8 | 0/8 | clean |
+| gemma4:12b | not run | — | stopped during its first case |
+| qwen3.5:4b | blocked | — | at 8192 context it reliably crashes the RX 6500 XT Vulkan driver (`vk::Queue::submit: ErrorDeviceLost`, kernel `amdgpu ring comp timeout`); qwen3 models are fine. Driver/hardware, not offcode |
+| gpt-oss:20b | skipped | — | needs ~14.9GB of 15GB RAM; earlier driver crash |
+
+Earlier runs in `plan-reliability-aborted` and `plan-reliability-truncated-ctx`
+(local validation dir) predate these fixes and are not valid evidence.
+
+Observation, not yet a decision: no model called plan_set on these 2–3 step
+tasks, so plan_update reliability is still unmeasured. Gemma4:12b is the tier
+with the known "does work but never marks steps done" pattern.
+
+Resume:
+1. `go build -o bin/offcode ./cmd/offcode`; start Ollama if it is not running.
+2. `python3 scripts/eval/plan_reliability.py --models gemma4:12b --output <new dir>`
+   (directory must not exist; keep it under the local validation dir).
+3. Add one or two longer tasks (4+ steps) so models actually plan, rerun on
+   qwen3:8b and gemma4:12b, then judge plan_update reliability.
+4. Record results here, stop Ollama if you started it, commit.
+LM Studio's llmster daemon (started by Codex) is still running with no model
+loaded; `~/.lmstudio/bin/lms daemon down` stops it if unneeded.
