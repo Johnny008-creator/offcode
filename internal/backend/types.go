@@ -93,10 +93,14 @@ func IsMalformedToolCallResponse(err error) bool {
 type streamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Role      string     `json:"role,omitempty"`
-			Content   string     `json:"content,omitempty"`
-			Reasoning string     `json:"reasoning,omitempty"`
-			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			Role      string `json:"role,omitempty"`
+			Content   string `json:"content,omitempty"`
+			Reasoning string `json:"reasoning,omitempty"`
+			// LM Studio (and llama.cpp/vLLM-style servers) stream the
+			// thinking trace as reasoning_content instead of Ollama's
+			// reasoning field, confirmed live against llmster 0.0.25.
+			ReasoningContent string     `json:"reasoning_content,omitempty"`
+			ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`

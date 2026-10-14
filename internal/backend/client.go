@@ -69,9 +69,68 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatRequest) (*Message,
 }
 
 // ContextLength best-effort queries an Ollama-native /api/show endpoint for
-// the model's trained context length. Returns 0 if the backend doesn't
-// support it (e.g. LM Studio) or the field can't be found.
+// the model's trained context length, falling back to LM Studio's REST
+// metadata. Returns 0 if neither is available or the field can't be found.
 func (c *Client) ContextLength(ctx context.Context, model string) int {
+	if n := c.ollamaContextLength(ctx, model); n > 0 {
+		return n
+	}
+	if m, ok := c.lmStudioModel(ctx, model); ok {
+		// The loaded length is what the server will actually accept; the
+		// trained maximum only applies once LM Studio reloads the model.
+		if m.LoadedContextLength > 0 {
+			return m.LoadedContextLength
+		}
+		return m.MaxContextLength
+	}
+	return 0
+}
+
+// lmStudioModelInfo is one entry of LM Studio's /api/v0/models listing.
+type lmStudioModelInfo struct {
+	ID                  string `json:"id"`
+	Type                string `json:"type"`
+	State               string `json:"state"`
+	MaxContextLength    int    `json:"max_context_length"`
+	LoadedContextLength int    `json:"loaded_context_length"`
+}
+
+// lmStudioModels queries LM Studio's REST API, which, unlike the
+// OpenAI-compatible /v1/models, reports model type and context lengths.
+func (c *Client) lmStudioModels(ctx context.Context) ([]lmStudioModelInfo, bool) {
+	root := strings.TrimSuffix(c.BaseURL, "/v1")
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/v0/models", nil)
+	if err != nil {
+		return nil, false
+	}
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var parsed struct {
+		Data []lmStudioModelInfo `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil || len(parsed.Data) == 0 {
+		return nil, false
+	}
+	return parsed.Data, true
+}
+
+func (c *Client) lmStudioModel(ctx context.Context, model string) (lmStudioModelInfo, bool) {
+	models, _ := c.lmStudioModels(ctx)
+	for _, m := range models {
+		if m.ID == model {
+			return m, true
+		}
+	}
+	return lmStudioModelInfo{}, false
+}
+
+func (c *Client) ollamaContextLength(ctx context.Context, model string) int {
 	root := strings.TrimSuffix(c.BaseURL, "/v1")
 
 	body, _ := json.Marshal(map[string]string{"model": model})
@@ -238,6 +297,17 @@ func (c *Client) listModelsOllama(ctx context.Context) ([]string, error) {
 }
 
 func (c *Client) listModelsOpenAI(ctx context.Context) ([]string, error) {
+	// LM Studio's /v1/models also lists embedding models, which cannot
+	// chat; its REST listing says which entries are chat models.
+	if models, ok := c.lmStudioModels(ctx); ok {
+		var names []string
+		for _, m := range models {
+			if m.Type == "llm" || m.Type == "vlm" {
+				names = append(names, m.ID)
+			}
+		}
+		return names, nil
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
 	if err != nil {
 		return nil, err

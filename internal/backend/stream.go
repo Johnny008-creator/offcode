@@ -113,8 +113,8 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) <-ch
 				contentBuf.WriteString(delta.Content)
 				events <- StreamEvent{Kind: EventContent, ContentDelta: delta.Content}
 			}
-			if delta.Reasoning != "" {
-				events <- StreamEvent{Kind: EventReasoning, ContentDelta: delta.Reasoning}
+			if r := delta.Reasoning + delta.ReasoningContent; r != "" {
+				events <- StreamEvent{Kind: EventReasoning, ContentDelta: r}
 			}
 			for _, tc := range delta.ToolCalls {
 				existing, ok := toolCalls[tc.Index]
