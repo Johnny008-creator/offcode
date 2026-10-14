@@ -3,18 +3,21 @@ package main
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
 	"github.com/Johnny008-creator/offcode/internal/config"
 	"github.com/Johnny008-creator/offcode/internal/media"
 	"github.com/Johnny008-creator/offcode/internal/monitor"
+	"github.com/Johnny008-creator/offcode/internal/setup"
 	"github.com/Johnny008-creator/offcode/internal/tiers"
 	"github.com/Johnny008-creator/offcode/internal/tui"
 	"github.com/Johnny008-creator/offcode/internal/usagelog"
@@ -22,8 +25,30 @@ import (
 )
 
 func main() {
+	refreshOllamaEnvironment()
+	settings, setupErr := setup.Load()
+	if setupErr == nil {
+		// Setup must see the original environment, not a previously restored snapshot.
+		if len(os.Args) < 2 || os.Args[1] != "setup" {
+			setup.Apply(settings)
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "offcode: invalid setup preferences:", setupErr)
+	}
+	restarted := os.Getenv("OFFCODE_UPDATE_RESTART") == tui.AppVersion
+	os.Unsetenv("OFFCODE_UPDATE_RESTART")
+	if !restarted && (len(os.Args) == 1 || os.Args[1] == "web" || (strings.HasPrefix(os.Args[1], "-") && os.Args[1] != "--version" && os.Args[1] != "-v" && os.Args[1] != "-h" && os.Args[1] != "--help")) {
+		startupUpdate()
+	}
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "setup":
+			runSetup(os.Args[2:])
+			return
+		case "update":
+			runUpdate(os.Args[2:])
+			return
 		case "eval-case":
 			runEvalCase(os.Args[2:])
 			return
@@ -177,6 +202,8 @@ func runConfig(args []string) {
 		fmt.Printf("model:    %s\n", orNone(fc.Model))
 		fmt.Printf("mode:     %s\n", orNone(fc.Mode))
 		fmt.Printf("base-url: %s\n", orNone(fc.BaseURL))
+		fmt.Printf("pdf-engine: %s\n", config.PDFEngine())
+		fmt.Printf("whisper-model: %s\n", orNone(config.WhisperModel()))
 
 	case "set":
 		fs := flag.NewFlagSet("offcode config set", flag.ExitOnError)
@@ -184,6 +211,8 @@ func runConfig(args []string) {
 		modelFlag := fs.String("model", "", "save as default model")
 		modeFlag := fs.String("mode", "", "save as default permission mode")
 		baseURLFlag := fs.String("base-url", "", "save as default base URL")
+		pdfEngineFlag := fs.String("pdf-engine", "", "PDF engine executable")
+		whisperModelFlag := fs.String("whisper-model", "", "local whisper.cpp model path")
 		fs.Parse(args[1:])
 
 		fc, err := config.LoadFile()
@@ -202,6 +231,12 @@ func runConfig(args []string) {
 		}
 		if *baseURLFlag != "" {
 			fc.BaseURL = *baseURLFlag
+		}
+		if *pdfEngineFlag != "" {
+			fc.PDFEngine = *pdfEngineFlag
+		}
+		if *whisperModelFlag != "" {
+			fc.WhisperModel = *whisperModelFlag
 		}
 		if err := config.SaveFile(fc); err != nil {
 			fmt.Fprintln(os.Stderr, "offcode config:", err)
@@ -324,13 +359,25 @@ func runDoctor(args []string) {
 	}
 
 	httpClient := &http.Client{Timeout: 3 * time.Second}
-
-	resp, err := httpClient.Get("http://localhost:11434/api/version")
+	fc, err := config.LoadFile()
 	if err != nil {
-		check("Ollama reachable", false, "http://localhost:11434 — "+err.Error())
+		failExtra(err)
+	}
+	configuredURL := ""
+	if fc.Backend == "ollama" || fc.Backend == "" {
+		configuredURL = fc.BaseURL
+	}
+	baseURL, err := config.ResolveBaseURL("ollama", configuredURL)
+	if err != nil {
+		failExtra(err)
+	}
+	root := strings.TrimSuffix(baseURL, "/v1")
+	resp, err := httpClient.Get(root + "/api/version")
+	if err != nil {
+		check("Ollama reachable", false, root+" — "+err.Error())
 	} else {
 		resp.Body.Close()
-		check("Ollama reachable", resp.StatusCode == http.StatusOK, "http://localhost:11434")
+		check("Ollama reachable", resp.StatusCode == http.StatusOK, root)
 	}
 
 	resp, err = httpClient.Get("http://127.0.0.1:8888/search?q=test&format=json")
@@ -344,7 +391,31 @@ func runDoctor(args []string) {
 	var missing []string
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client := backend.NewClient("http://localhost:11434/v1")
+	if loaded, err := httpClient.Get(root + "/api/ps"); err == nil {
+		if loaded.StatusCode == http.StatusOK {
+			var status struct {
+				Models []struct {
+					Name string
+					Size int64
+					VRAM int64 `json:"size_vram"`
+				}
+			}
+			if json.NewDecoder(loaded.Body).Decode(&status) == nil {
+				if len(status.Models) == 0 {
+					fmt.Println("  GPU placement: no model loaded; send a message, then rerun doctor.")
+				}
+				for _, m := range status.Models {
+					processor := "CPU only"
+					if m.VRAM > 0 {
+						processor = "GPU/mixed"
+					}
+					fmt.Printf("  %s: %s, VRAM %.2f GiB / total %.2f GiB\n", m.Name, processor, float64(m.VRAM)/(1<<30), float64(m.Size)/(1<<30))
+				}
+			}
+		}
+		loaded.Body.Close()
+	}
+	client := backend.NewClient(baseURL)
 	installed, err := client.ListModels(ctx, "ollama")
 	if err != nil {
 		check("Model tiers installed", false, "could not list Ollama models: "+err.Error())
@@ -362,10 +433,7 @@ func runDoctor(args []string) {
 	}
 
 	if *extensionsFlag {
-		engine := os.Getenv("OFFCODE_PDF_ENGINE")
-		if engine == "" {
-			engine = "xelatex"
-		}
+		engine := config.PDFEngine()
 		for _, name := range []string{"pandoc", engine, "ffmpeg", "whisper-cli", "espeak-ng"} {
 			path, err := exec.LookPath(name)
 			if err != nil {
@@ -374,7 +442,7 @@ func runDoctor(args []string) {
 				check(name, true, path)
 			}
 		}
-		model := os.Getenv("OFFCODE_WHISPER_MODEL")
+		model := config.WhisperModel()
 		info, err := os.Stat(model)
 		check("Whisper model", err == nil && info != nil && !info.IsDir(), model)
 		cfg, err := media.Load()
@@ -402,6 +470,7 @@ func runDoctor(args []string) {
 		for _, tag := range missing {
 			fmt.Printf("\n$ ollama pull %s\n", tag)
 			cmd := exec.Command("ollama", "pull", tag)
+			cmd.Env = append(os.Environ(), "OLLAMA_HOST="+root)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {

@@ -12,10 +12,12 @@ import (
 // pass, so `offcode` alone can work from saved defaults without the file
 // having to specify everything.
 type FileConfig struct {
-	Backend string `json:"backend,omitempty"`
-	Model   string `json:"model,omitempty"`
-	Mode    string `json:"mode,omitempty"`
-	BaseURL string `json:"base_url,omitempty"`
+	PDFEngine    string `json:"pdf_engine,omitempty"`
+	WhisperModel string `json:"whisper_model,omitempty"`
+	Backend      string `json:"backend,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Mode         string `json:"mode,omitempty"`
+	BaseURL      string `json:"base_url,omitempty"`
 }
 
 func filePath() (string, error) {
@@ -65,4 +67,22 @@ func SaveFile(fc FileConfig) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// Optional tool settings can be saved once; explicit environment values win.
+func PDFEngine() string {
+	if v := os.Getenv("OFFCODE_PDF_ENGINE"); v != "" {
+		return v
+	}
+	if fc, err := LoadFile(); err == nil && fc.PDFEngine != "" {
+		return fc.PDFEngine
+	}
+	return "xelatex"
+}
+func WhisperModel() string {
+	if v := os.Getenv("OFFCODE_WHISPER_MODEL"); v != "" {
+		return v
+	}
+	fc, _ := LoadFile()
+	return fc.WhisperModel
 }

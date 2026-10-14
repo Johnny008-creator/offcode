@@ -195,7 +195,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type modelReq struct {
-	Model string `json:"model"`
+	SessionID string `json:"session_id"`
+	Model     string `json:"model"`
 }
 
 func (s *Server) handleSetModel(w http.ResponseWriter, r *http.Request) {
@@ -208,12 +209,16 @@ func (s *Server) handleSetModel(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "expected JSON body {\"model\":\"...\"}")
 		return
 	}
-	s.sess.SetModel(req.Model)
+	if !s.sess.SetModel(req.Model, req.SessionID) {
+		httpError(w, 409, "a turn is in progress or the active session changed")
+		return
+	}
 	writeJSON(w, s.sess.Snapshot())
 }
 
 type modeReq struct {
-	Mode string `json:"mode"`
+	SessionID string `json:"session_id"`
+	Mode      string `json:"mode"`
 }
 
 func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +227,7 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req modeReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !s.sess.SetMode(req.Mode) {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !s.sess.SetMode(req.Mode, req.SessionID) {
 		httpError(w, http.StatusBadRequest, "mode must be one of: plan, default, auto")
 		return
 	}
@@ -230,7 +235,8 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 }
 
 type messageReq struct {
-	Text string `json:"text"`
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
 }
 
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
@@ -243,16 +249,17 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "expected JSON body {\"text\":\"...\"}")
 		return
 	}
-	if !s.sess.Submit(req.Text) {
-		httpError(w, http.StatusConflict, "a turn is already in progress")
+	if !s.sess.Submit(req.Text, req.SessionID) {
+		httpError(w, http.StatusConflict, "a turn is in progress or the active session changed; refresh and try again")
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 type researchReq struct {
-	Question string `json:"question"`
-	Depth    string `json:"depth"`
+	SessionID string `json:"session_id"`
+	Question  string `json:"question"`
+	Depth     string `json:"depth"`
 }
 
 func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
@@ -267,15 +274,16 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	}
 	prompt, filename, depthName := webengine.ResearchPrompt(req.Question, req.Depth)
 	display := fmt.Sprintf("/research %s (depth=%s) → %s", req.Question, depthName, filename)
-	if !s.sess.SubmitDisplay(display, prompt) {
-		httpError(w, http.StatusConflict, "a turn is already in progress")
+	if !s.sess.SubmitDisplay(display, prompt, req.SessionID) {
+		httpError(w, http.StatusConflict, "a turn is in progress or the active session changed; refresh and try again")
 		return
 	}
 	writeJSON(w, map[string]string{"ok": "true", "filename": filename})
 }
 
 type confirmReq struct {
-	Allow bool `json:"allow"`
+	ID    string `json:"id"`
+	Allow bool   `json:"allow"`
 }
 
 func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +296,7 @@ func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "expected JSON body {\"allow\":true|false}")
 		return
 	}
-	if !s.sess.Confirm(req.Allow) {
+	if !s.sess.Confirm(req.Allow, req.ID) {
 		httpError(w, http.StatusConflict, "no pending confirmation")
 		return
 	}
@@ -296,6 +304,7 @@ func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
 }
 
 type answerReq struct {
+	ID     string `json:"id"`
 	Answer string `json:"answer"`
 }
 
@@ -309,7 +318,7 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "expected JSON body {\"answer\":\"...\"}")
 		return
 	}
-	if !s.sess.AnswerAsk(req.Answer) {
+	if !s.sess.AnswerAsk(req.Answer, req.ID) {
 		httpError(w, http.StatusConflict, "no pending question")
 		return
 	}
@@ -342,7 +351,11 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	s.sess.Stop()
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	s.sess.Stop(req.SessionID)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -363,15 +376,23 @@ func (s *Server) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	if !s.sess.StartNew() {
-		httpError(w, http.StatusConflict, "a turn is already in progress")
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, 400, "expected JSON body")
+		return
+	}
+	if !s.sess.StartNew(req.SessionID) {
+		httpError(w, http.StatusConflict, "a turn is in progress or the active session changed; refresh and try again")
 		return
 	}
 	writeJSON(w, s.sess.Snapshot())
 }
 
 type switchReq struct {
-	ID string `json:"id"`
+	SessionID string `json:"session_id"`
+	ID        string `json:"id"`
 }
 
 func (s *Server) handleSessionSwitch(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +405,7 @@ func (s *Server) handleSessionSwitch(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "expected JSON body {\"id\":\"...\"}")
 		return
 	}
-	if !s.sess.SwitchTo(req.ID) {
+	if !s.sess.SwitchTo(req.ID, req.SessionID) {
 		httpError(w, http.StatusConflict, "a turn is in progress, or that session doesn't exist")
 		return
 	}
@@ -412,7 +433,7 @@ func (s *Server) handleArtifact(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid block")
 		return
 	}
-	path, ok := s.sess.ArtifactPath(index)
+	path, ok := s.sess.ArtifactPath(index, r.URL.Query().Get("session"))
 	if !ok {
 		httpError(w, 404, "artifact not found")
 		return

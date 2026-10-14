@@ -14,3 +14,23 @@ jobs:
       - run: go test -short ./...
       - run: go vet ./...
       - run: go build ./cmd/offcode
+
+      - name: Check Windows installer and setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$pwd/scripts/windows/install.ps1", [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          New-Item -ItemType Directory -Force bin | Out-Null
+          Copy-Item offcode.exe bin/offcode.exe
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.2.2 scripts/windows/offcode.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
+          & ./scripts/windows/install.ps1 -LocalExe ./offcode.exe -Models none -Ollama preserve -Preserve server -Updates off -NonInteractive
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell installation/setup failed' }
+          $settings = Get-Content "$env:USERPROFILE/.offcode/setup.json" -Raw | ConvertFrom-Json
+          if (@($settings.preserve).Count -ne 1 -or $settings.preserve[0] -ne 'server') { throw 'Preservation checkbox selection was not forwarded' }
+          & "$env:LOCALAPPDATA/Programs/offcode/offcode.exe" version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed executable failed' }
+          & ./scripts/windows/install.ps1 -Uninstall

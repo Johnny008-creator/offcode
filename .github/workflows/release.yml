@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go build -o dist/offcode-linux-amd64 ./cmd/offcode
+      - run: go build -ldflags "-X github.com/Johnny008-creator/offcode/internal/tui.AppVersion=${GITHUB_REF_NAME#v}" -o dist/offcode-linux-amd64 ./cmd/offcode
       - uses: actions/upload-artifact@v4
         with:
           name: offcode-linux-amd64
@@ -27,7 +27,9 @@ jobs:
           go-version-file: go.mod
       - name: Build offcode.exe
         shell: pwsh
-        run: go build -o bin\offcode.exe .\cmd\offcode
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          go build -ldflags "-X github.com/Johnny008-creator/offcode/internal/tui.AppVersion=$version" -o bin\offcode.exe .\cmd\offcode
       - name: Derive version from tag
         id: ver
         shell: pwsh
@@ -60,10 +62,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          cd artifacts
+          find . -type f -name 'offcode*' -exec sh -c 'cd "$(dirname "$1")" && sha256sum "$(basename "$1")"' sh {} \; > SHA256SUMS
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            artifacts/SHA256SUMS
             artifacts/offcode-linux-amd64/offcode-linux-amd64
             artifacts/offcode-windows-amd64/offcode-windows-amd64.exe
             artifacts/offcode-windows-amd64/offcode-setup-*.exe

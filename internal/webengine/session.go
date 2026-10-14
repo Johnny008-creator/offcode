@@ -56,12 +56,14 @@ type PlanStepView struct {
 }
 
 type ConfirmView struct {
+	ID       string `json:"id"`
 	Preview  string `json:"preview,omitempty"`
 	ToolName string `json:"tool_name"`
 	ToolArgs string `json:"tool_args"`
 }
 
 type AskView struct {
+	ID          string   `json:"id"`
 	Question    string   `json:"question"`
 	Options     []string `json:"options"`
 	Recommended int      `json:"recommended"`
@@ -99,6 +101,9 @@ type Session struct {
 
 	pendingConfirmTC *backend.ToolCall
 	pendingPreview   string
+	pendingConfirmID string
+	pendingAskID     string
+	requestSequence  uint64
 	confirmCh        chan bool
 
 	pendingAskTC          *backend.ToolCall
@@ -266,10 +271,10 @@ func (s *Session) CurrentSessionID() string {
 // StartNew saves the current conversation (if any) and switches to a
 // brand-new, empty one. Refuses while a turn is in progress, same as
 // Submit — switching mid-generation would orphan the in-flight goroutine.
-func (s *Session) StartNew() bool {
+func (s *Session) StartNew(expected ...string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.status != "idle" {
+	if s.status != "idle" || !s.matchesSession(expected) {
 		return false
 	}
 	s.saveToDiskLocked()
@@ -280,10 +285,10 @@ func (s *Session) StartNew() bool {
 
 // SwitchTo saves the current conversation and loads a different saved
 // session by id.
-func (s *Session) SwitchTo(id string) bool {
+func (s *Session) SwitchTo(id string, expected ...string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.status != "idle" {
+	if s.status != "idle" || !s.matchesSession(expected) {
 		return false
 	}
 	s.saveToDiskLocked()
@@ -371,10 +376,10 @@ func (s *Session) snapshotLocked() State {
 		SessionID:    s.sessionID,
 	}
 	if s.pendingConfirmTC != nil {
-		st.Confirm = &ConfirmView{ToolName: s.pendingConfirmTC.Function.Name, ToolArgs: s.pendingConfirmTC.Function.Arguments, Preview: s.pendingPreview}
+		st.Confirm = &ConfirmView{ID: s.pendingConfirmID, ToolName: s.pendingConfirmTC.Function.Name, ToolArgs: s.pendingConfirmTC.Function.Arguments, Preview: s.pendingPreview}
 	}
 	if s.pendingAskTC != nil {
-		st.Ask = &AskView{Question: s.pendingAskQuestion, Options: s.pendingAskOptions, Recommended: s.pendingAskRecommended}
+		st.Ask = &AskView{ID: s.pendingAskID, Question: s.pendingAskQuestion, Options: s.pendingAskOptions, Recommended: s.pendingAskRecommended}
 	}
 	if st.Model == "" {
 		st.ModelDisplay = ""
@@ -392,12 +397,16 @@ func (s *Session) pushBlock(b Block) {
 // SetModel sets the active model (used by the web UI's model picker when
 // no model was given on the command line) and rewrites the system prompt
 // in place, matching the TUI's /model behavior.
-func (s *Session) SetModel(model string) {
+func (s *Session) SetModel(model string, expected ...string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	vision := s.client.SupportsVision(ctx, model)
 
 	s.mu.Lock()
+	if s.status != "idle" || !s.matchesSession(expected) {
+		s.mu.Unlock()
+		return false
+	}
 	s.cfg.Model = model
 	s.visionCapable = vision
 	if len(s.messages) > 0 && s.messages[0].Role == "system" {
@@ -405,15 +414,20 @@ func (s *Session) SetModel(model string) {
 	}
 	s.notify()
 	s.mu.Unlock()
+	return true
 }
 
-func (s *Session) SetMode(mode string) bool {
+func (s *Session) SetMode(mode string, expected ...string) bool {
 	switch mode {
 	case "plan", "default", "auto":
 	default:
 		return false
 	}
 	s.mu.Lock()
+	if !s.matchesSession(expected) {
+		s.mu.Unlock()
+		return false
+	}
 	s.cfg.Mode = permission.Mode(mode)
 	s.notify()
 	s.mu.Unlock()
@@ -427,8 +441,12 @@ func (s *Session) IsBusy() bool {
 }
 
 // Stop cancels an in-flight generation, if any.
-func (s *Session) Stop() {
+func (s *Session) Stop(expected ...string) {
 	s.mu.Lock()
+	if !s.matchesSession(expected) {
+		s.mu.Unlock()
+		return
+	}
 	cancel := s.cancelFn
 	s.mu.Unlock()
 	if cancel != nil {
@@ -451,9 +469,9 @@ func (s *Session) saveToDiskLocked() {
 
 // Submit starts a new turn with the given user text. Returns false (doing
 // nothing) if a turn is already in progress.
-func (s *Session) Submit(text string) bool {
+func (s *Session) Submit(text string, expected ...string) bool {
 	s.mu.Lock()
-	if s.status != "idle" {
+	if s.status != "idle" || !s.matchesSession(expected) {
 		s.mu.Unlock()
 		return false
 	}
@@ -475,9 +493,9 @@ func (s *Session) Submit(text string) bool {
 // SubmitDisplay is Submit but with a separate, shorter string shown in the
 // transcript than the one actually sent to the model (used by /research
 // via the HTTP layer, mirroring the TUI's submitUserMessageDisplay).
-func (s *Session) SubmitDisplay(display, actual string) bool {
+func (s *Session) SubmitDisplay(display, actual string, expected ...string) bool {
 	s.mu.Lock()
-	if s.status != "idle" {
+	if s.status != "idle" || !s.matchesSession(expected) {
 		s.mu.Unlock()
 		return false
 	}
@@ -497,8 +515,12 @@ func (s *Session) SubmitDisplay(display, actual string) bool {
 }
 
 // Confirm resolves a pending tool-confirmation request.
-func (s *Session) Confirm(allow bool) bool {
+func (s *Session) Confirm(allow bool, expected ...string) bool {
 	s.mu.Lock()
+	if len(expected) > 0 && (expected[0] == "" || expected[0] != s.pendingConfirmID) {
+		s.mu.Unlock()
+		return false
+	}
 	ch := s.confirmCh
 	s.confirmCh = nil
 	s.mu.Unlock()
@@ -510,8 +532,12 @@ func (s *Session) Confirm(allow bool) bool {
 }
 
 // AnswerAsk resolves a pending ask_user request.
-func (s *Session) AnswerAsk(answer string) bool {
+func (s *Session) AnswerAsk(answer string, expected ...string) bool {
 	s.mu.Lock()
+	if len(expected) > 0 && (expected[0] == "" || expected[0] != s.pendingAskID) {
+		s.mu.Unlock()
+		return false
+	}
 	ch := s.askCh
 	s.askCh = nil
 	s.mu.Unlock()
@@ -520,4 +546,11 @@ func (s *Session) AnswerAsk(answer string) bool {
 	}
 	ch <- answer
 	return true
+}
+
+// matchesSession is called with mu held, making the check and mutation atomic.
+// Empty IDs retain compatibility for local scripted clients; the browser always
+// sends the session it actually displayed when the user clicked.
+func (s *Session) matchesSession(expected []string) bool {
+	return len(expected) == 0 || expected[0] == "" || expected[0] == s.sessionID
 }

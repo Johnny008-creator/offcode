@@ -12,10 +12,10 @@ import (
 
 // ArtifactPath exposes only artifacts produced by this session's tools,
 // never an arbitrary file path from an HTTP query.
-func (s *Session) ArtifactPath(block int) (string, bool) {
+func (s *Session) ArtifactPath(block int, expected ...string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if block < 0 || block >= len(s.blocks) || s.blocks[block].artifactPath == "" {
+	if !s.matchesSession(expected) || block < 0 || block >= len(s.blocks) || s.blocks[block].artifactPath == "" {
 		return "", false
 	}
 	return s.blocks[block].artifactPath, true

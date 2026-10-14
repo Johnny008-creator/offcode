@@ -2,6 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/Johnny008-creator/offcode/internal/permission"
 )
@@ -29,6 +33,27 @@ var presetBaseURLs = map[string]string{
 func ResolveBaseURL(backendFlag, baseURLFlag string) (string, error) {
 	if baseURLFlag != "" {
 		return baseURLFlag, nil
+	}
+	if backendFlag == "ollama" {
+		if host := os.Getenv("OLLAMA_HOST"); host != "" {
+			if !strings.Contains(host, "://") {
+				host = "http://" + host
+			}
+			u, err := url.Parse(host)
+			if err != nil || u.Hostname() == "" {
+				return "", fmt.Errorf("invalid OLLAMA_HOST")
+			}
+			name := u.Hostname()
+			if name == "0.0.0.0" || name == "::" {
+				name = "localhost"
+			}
+			port := u.Port()
+			if port == "" {
+				port = "11434"
+			}
+			u.Host = net.JoinHostPort(name, port)
+			return strings.TrimSuffix(strings.TrimRight(u.String(), "/"), "/v1") + "/v1", nil
+		}
 	}
 	preset, ok := presetBaseURLs[backendFlag]
 	if !ok {

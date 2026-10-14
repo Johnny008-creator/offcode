@@ -21,6 +21,10 @@
     Release tag to download when -LocalExe is not given, e.g. "v0.1.0".
     Defaults to the latest release.
 
+.PARAMETER Preserve
+    Comma-separated server,gpu,models,context,parallel,cache,keepalive, or all/none.
+    The interactive wizard offers independent checkboxes for these choices.
+
 .PARAMETER Uninstall
     Remove the installed exe and its PATH entry.
 
@@ -37,7 +41,13 @@
 param(
     [string]$LocalExe,
     [string]$Version,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [ValidateSet('preserve', 'auto', 'external')][string]$Ollama = 'preserve',
+    [string]$Models = 'none',
+    [string]$Preserve,
+    [ValidateSet('auto', 'notify', 'off')][string]$Updates = 'auto',
+    [switch]$InstallOllama,
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -112,6 +122,13 @@ if ($LocalExe) {
 }
 
 Add-UserPath $InstallDir
+
+$setupArgs = @('setup', "-ollama=$Ollama", "-models=$Models", "-updates=$Updates")
+if ($PSBoundParameters.ContainsKey('Preserve')) { $setupArgs += "-preserve=$Preserve" }
+if ($InstallOllama) { $setupArgs += '-install-ollama' }
+if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Models')) { $setupArgs += '-interactive' }
+& $ExePath @setupArgs
+if ($LASTEXITCODE -ne 0) { throw 'Offcode was installed, but setup/downloads failed. Rerun offcode setup -interactive to retry.' }
 
 Write-Host "offcode installed to $InstallDir"
 Write-Host "Open a new terminal and run 'offcode' to get started."

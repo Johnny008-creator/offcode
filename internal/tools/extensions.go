@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/backend"
+	"github.com/Johnny008-creator/offcode/internal/config"
 	"github.com/Johnny008-creator/offcode/internal/media"
 )
 
@@ -30,7 +31,7 @@ func extensionAvailability() map[string]bool {
 	}
 	if _, errF := exec.LookPath("ffmpeg"); errF == nil {
 		if _, errW := exec.LookPath("whisper-cli"); errW == nil {
-			if model := os.Getenv("OFFCODE_WHISPER_MODEL"); model != "" {
+			if model := config.WhisperModel(); model != "" {
 				if info, err := os.Stat(model); err == nil && !info.IsDir() {
 					avail["transcribe_audio"] = true
 				}
@@ -182,12 +183,9 @@ func ExportDocument(ctx context.Context, source, path string) error {
 		return err
 	}
 	return produceFile(path, func(tmp string) error {
-		args := []string{"--from=markdown", "--standalone", "--output", tmp}
+		args := []string{"--from=markdown", "--standalone", "--fail-if-warnings", "--resource-path", filepath.Dir(source), "--metadata=pagetitle:" + filepath.Base(source), "--output", tmp}
 		if ext == ".pdf" {
-			engine := os.Getenv("OFFCODE_PDF_ENGINE")
-			if engine == "" {
-				engine = "xelatex"
-			}
+			engine := config.PDFEngine()
 			args = append(args, "--pdf-engine", engine)
 		}
 		args = append(args, "--", source)
@@ -211,7 +209,7 @@ func Synthesize(ctx context.Context, text, path, voice string) error {
 }
 
 func Transcribe(ctx context.Context, path, language string) (string, error) {
-	model := os.Getenv("OFFCODE_WHISPER_MODEL")
+	model := config.WhisperModel()
 	if model == "" {
 		return "", fmt.Errorf("set OFFCODE_WHISPER_MODEL to a local whisper.cpp model file")
 	}

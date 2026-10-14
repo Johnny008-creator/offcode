@@ -41,6 +41,9 @@ func Write(path string, content string) (string, error) {
 func Edit(path, oldString, newString string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%s does not exist: use write with path and content to create it, then use edit only for existing files", path)
+		}
 		return "", err
 	}
 	content := string(data)

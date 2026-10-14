@@ -33,6 +33,12 @@ if not "%~1"=="" (
 )
 
 call :addpath
+rem Shared setup keeps all installer choices and download behavior consistent.
+"%EXE_PATH%" setup -interactive
+if errorlevel 1 (
+    echo Offcode installed, but setup failed. Run "offcode setup -interactive" to retry.
+    exit /b 1
+)
 echo offcode installed to %INSTALL_DIR%
 echo Open a new terminal and run "offcode" to get started.
 goto :eof

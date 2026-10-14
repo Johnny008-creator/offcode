@@ -1,6 +1,6 @@
 import { initThemePicker } from './theme.js';
 import { renderMarkdown, esc } from './markdown.js';
-import { initArtifact, open as openArtifact, download as downloadArtifact, copyText } from './artifact.js';
+import { initArtifact, open as openArtifact, close as closeArtifact, download as downloadArtifact, copyText } from './artifact.js';
 
 const el = (id) => document.getElementById(id);
 const chat = el('chat');
@@ -45,6 +45,9 @@ let currentAudio = null;
 let lastStatus = null;
 let lastRenderKey = '';
 let lastSessionId = null;
+let confirmId = null;
+let askId = null;
+const drafts = new Map();
 let modelPickerShown = false;
 let sendOnEnter = localStorage.getItem('offcode.sendOnEnter') !== 'false';
 
@@ -52,7 +55,7 @@ if (window.marked) { /* renderer configured in markdown.js */ }
 
 async function api(path, body) {
   const opts = body !== undefined
-    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: lastSessionId, ...body }) }
     : {};
   const res = await fetch(path, opts);
   if (!res.ok) {
@@ -484,20 +487,22 @@ document.addEventListener('click', (e) => {
 // ---- confirm / ask --------------------------------------------------------
 
 function showConfirm(c) {
+  confirmId = c.id;
   confirmToolName.textContent = c.tool_name;
   confirmArgs.textContent = c.preview || c.tool_args;
   if (!confirmDlg.open) confirmDlg.showModal();
 }
 el('confirmAllow').addEventListener('click', async () => {
   confirmDlg.close();
-  try { await api('/api/confirm', { allow: true }); } catch (e) { showToast(e.message); }
+  try { await api('/api/confirm', { allow: true, id: confirmId }); } catch (e) { showToast(e.message); }
 });
 el('confirmDeny').addEventListener('click', async () => {
   confirmDlg.close();
-  try { await api('/api/confirm', { allow: false }); } catch (e) { showToast(e.message); }
+  try { await api('/api/confirm', { allow: false, id: confirmId }); } catch (e) { showToast(e.message); }
 });
 
 function showAsk(a) {
+  askId = a.id;
   askQuestion.textContent = a.question;
   askOptions.innerHTML = '';
   a.options.forEach((opt, i) => {
@@ -508,7 +513,7 @@ function showAsk(a) {
     btn.querySelector('span').textContent = opt;
     btn.addEventListener('click', async () => {
       askDlg.close();
-      try { await api('/api/answer', { answer: opt }); } catch (e) { showToast(e.message); }
+      try { await api('/api/answer', { answer: opt, id: a.id }); } catch (e) { showToast(e.message); }
     });
     askOptions.appendChild(btn);
   });
@@ -684,6 +689,14 @@ function renderActivity(state) {
 }
 
 function render(state) {
+  if (lastSessionId && state.session_id !== lastSessionId) {
+    drafts.set(lastSessionId, input.value);
+    input.value = drafts.get(state.session_id) || '';
+    input.dispatchEvent(new Event('input'));
+    closeArtifact();
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    showToast('Active conversation changed in another tab or window');
+  }
   modelName.textContent = state.model ? (state.model_display || state.model) : 'No model';
   if (document.activeElement !== modeBtn) {
     modeLabel.textContent = MODE_LABELS[state.mode] || 'Default';
@@ -704,7 +717,7 @@ function render(state) {
   if (state.confirm) showConfirm(state.confirm);
   else if (confirmDlg.open) confirmDlg.close();
 
-  if (state.ask && lastStatus !== 'asking') showAsk(state.ask);
+  if (state.ask && (askId !== state.ask.id || !askDlg.open)) showAsk(state.ask);
   else if (!state.ask && askDlg.open) askDlg.close();
 
   if (!state.model && !modelPickerShown) { modelPickerShown = true; openModelPicker(); }

@@ -403,11 +403,12 @@ audio.art-preview, video.art-preview { width: 100%; }
 /* ---- artifact preview panel ------------------------------------------------ */
 .artifact {
   position: relative; display: flex; flex-direction: column;
-  width: var(--art-w); min-width: 340px; max-width: 75vw; height: 100%;
+  width: var(--art-w); min-width: 340px; max-width: calc(100vw - var(--sb-w) - 400px); height: 100%;
   background: var(--panel); border-left: var(--bw) solid var(--line-2);
   animation: slideIn .35s var(--ease);
 }
 @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } }
+body.sb-collapsed .artifact:not(.full) { max-width: calc(100vw - 400px); }
 .artifact.full { position: fixed; inset: 0; width: 100%; max-width: none; z-index: 70; }
 .art-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-bottom: var(--bw) solid var(--line); }
 .art-tabs { display: flex; padding: 3px; border-radius: var(--r); background: var(--surf); }
@@ -506,7 +507,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 
 /* ---- mobile ---------------------------------------------------------------- */
 @media (max-width: 1100px) {
-  .artifact:not(.full) { position: fixed; inset: 0; width: 100%; max-width: none; min-width: 0; z-index: 60; }
+  .artifact:not(.full), body.sb-collapsed .artifact:not(.full) { position: fixed; inset: 0; width: 100%; max-width: none; min-width: 0; z-index: 60; }
   .art-resize { display: none; }
   body.art-open .plan-panel { right: 16px; }
 }
@@ -565,4 +566,33 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   .topbar-right .icon-btn { width:30px; }
   .theme-preview { height:66px; }
   .modal-body { padding-inline:16px; }
+}
+
+/* Resizable desktop windows, split previews and short landscape viewports. */
+.topbar > .model-picker { flex: 0 1 auto; }
+.topbar-right { min-width: 0; flex-shrink: 0; }
+#activityChip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.art-head { flex-wrap: wrap; }
+.art-title { flex: 1 1 80px; }
+.art-actions { flex-shrink: 0; }
+.think-body, .step-err, .confirm-args, .plan-step { overflow-wrap: anywhere; }
+.modal-head, .modal-foot { flex-shrink: 0; }
+.modal-body { min-height: 0; }
+.modal-foot { flex-wrap: wrap; }
+.toast { max-width: calc(100vw - 32px); overflow-wrap: anywhere; }
+@media (min-width: 821px) and (max-width: 1250px) {
+ body.art-open #activityChip { display: none; }
+}
+@media (max-width: 600px) {
+ .mode-menu { position: fixed; top: 62px; left: 12px; right: 12px; min-width: 0; max-height: calc(100dvh - 76px); overflow-y: auto; }
+ #activityChip { max-width: 90px; }
+ .topbar { flex-wrap: wrap; }
+ .art-actions { flex-wrap: wrap; }
+}
+@media (max-height: 540px) {
+ .model-menu { max-height: calc(100dvh - 76px); overflow-y: auto; }
+ .wl-mark { width: 52px; margin-bottom: 10px; }
+ .wl-sub { margin-block: 12px; }
+ .cmp-box textarea { max-height: 25dvh; }
+ .modal { max-height: calc(100dvh - 24px); }
 }

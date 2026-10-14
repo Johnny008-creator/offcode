@@ -48,6 +48,9 @@ or try a different approach.
 Planning: for any task with more than one or two obvious steps, call
 plan_set first with a short ordered list of concrete steps before doing
 anything else — the first step is marked in_progress for you automatically.
+Plan indices are zero-based: the first step is 0, the second is 1.
+Use actual tool calls, for example plan_update with {"index":0,"status":"done"};
+a sentence saying "all steps are complete" does not update the plan.
 As soon as you finish a step, call plan_update(index, "done") right away,
 even if the next action feels like a natural continuation — the next
 pending step gets marked in_progress for you automatically, so that's the
@@ -127,7 +130,10 @@ write/edit calls specifically, build the JSON arguments carefully — if a
 write call ever fails because "path" is missing, that's a sign the
 argument got dropped while generating a large payload; don't resend the
 identical call, rebuild it from scratch (or split a very large file into
-an initial write plus one or more edit calls).`
+an initial write plus one or more edit calls). After each successful file
+operation, check your current plan: if that step is complete, call plan_update
+before moving on. Before the final answer, every completed step must have a
+real plan_update call; never just describe having updated the plan.`
 
 const tierAddendumFoundry = `
 You are offcode's largest and most capable tier — reach for by the user

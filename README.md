@@ -197,3 +197,116 @@ capabilities do not install or bundle large models and services. Setup and
 limits are in [EXTENSIONS](docs/EXTENSIONS.md), [TRAINING](docs/TRAINING.md),
 and [EVALUATION](docs/EVALUATION.md). The current implementation/validation
 checklist is [IMPLEMENTATION](docs/IMPLEMENTATION.md).
+
+## Installation preferences and model downloads
+
+All three Windows installers offer the same choices. The GUI has checkboxes;
+cmd and PowerShell open a console setup wizard with checkboxes (arrow keys,
+Space to toggle, Enter to continue). You can rerun it on Linux or
+Windows at any time:
+
+```sh
+offcode setup -interactive
+# Unattended example:
+offcode setup -preserve=server,gpu -models=spark,forge,embedding -updates=auto
+```
+
+Choose any combination of these independent preservation checkboxes:
+
+| Choice | Preserves |
+| --- | --- |
+| `server` | Ollama server address |
+| `gpu` | GPU selection, acceleration and GPU memory settings |
+| `models` | Model storage directory |
+| `context` | Server/Modelfile context size |
+| `parallel` | Parallel requests and loaded-model limits |
+| `cache` | Flash Attention and KV cache settings |
+| `keepalive` | Time models stay loaded |
+
+All are checked on the first installation. `-preserve=server` saves just the
+address; `-preserve=server,gpu` saves those two groups; `all` and `none` are
+also supported. Rerunning setup keeps the previous selection unless changed.
+Unchecking a group removes its previous saved fallback. Current environment
+variables still take precedence and are never erased: these choices do not
+reset a running Ollama service or Windows/Linux settings. With context unchecked,
+Offcode uses its 8192-token default unless `OFFCODE_NUM_CTX` is explicitly set.
+
+Startup is independent: `-ollama=preserve` (default) allows starting a local
+server when needed; `-ollama=external` connects only to an existing server.
+The legacy `-ollama=auto` shorthand selects no preserved groups unless an
+explicit `-preserve` selection accompanies it. Old all-or-nothing setup files
+remain compatible. Preferences are saved in `~/.offcode/setup.json`; Windows
+also reads missing current environment values from user/system settings.
+
+Existing Ollama processes, drivers, model files and configuration are not
+reset or reinstalled. `OLLAMA_HOST` is respected unless an explicit saved URL
+or `-base-url` overrides it. Offcode starts Ollama only for local loopback HTTP
+endpoints, binding it to the requested port. Settings that exist only in a
+service/custom launch script cannot be recovered from the client environment;
+start that service yourself and select `external`.
+
+Models can be selected as `spark`, `ember`, `forge`, `anvil`, `foundry`,
+`embedding` (semantic search), or explicit Ollama tags. `all` means all five
+chat tiers; `none` skips downloads. Installed models are reused, failed pulls
+can be resumed by rerunning the command, and the first successfully available
+chat model becomes the default if none was set. Model weights may occupy many
+GB; large tiers also need considerably more RAM/VRAM. Tier identities, system
+prompts, skills and the web UI are embedded in the Offcode binary, so they
+need no separate download. Optional media/voice/document services still need
+their own setup; see [EXTENSIONS.md](docs/EXTENSIONS.md).
+
+PowerShell also supports unattended installation:
+
+```powershell
+.\scripts\windows\install.ps1 -Models 'spark,forge' -Preserve 'server,gpu' -Updates auto -NonInteractive
+# Optional, only if Ollama is missing and downloads need it:
+.\scripts\windows\install.ps1 -Models spark -InstallOllama -NonInteractive
+```
+
+The optional Ollama installation uses Windows `winget`; it does not replace
+an Ollama binary already on PATH. On Linux, install Ollama separately first.
+For GUI automation, use Inno Setup's `/TASKS` option, e.g.
+`/TASKS="keepserver,keepgpu,spark,forge,updateauto"`.
+
+For GPU troubleshooting, run `offcode doctor` after sending a message. It
+reports the configured Ollama endpoint and loaded models' VRAM allocation,
+including CPU-only execution. GPU placement is decided by Ollama and its
+available drivers; preserving settings does not add hardware support. See
+[Ollama's environment/GPU diagnostics](https://docs.ollama.com/faq) and
+[hardware support](https://docs.ollama.com/gpu). With the context preservation checkbox selected,
+Offcode leaves the server's context size alone; if it is too small for tools,
+set `OFFCODE_NUM_CTX=8192` (or a suitable larger value) explicitly. A larger
+context can increase VRAM use. `OFFCODE_NUM_CTX=0` keeps the server default.
+
+## Automatic updates
+
+Released builds check GitHub for a newer stable version when starting the
+terminal chat or `offcode web`, print the installed and available versions,
+and default to downloading, verifying and installing the update before
+starting the chat. After a successful update, Offcode relaunches with the same
+arguments and working directory. Both Wi-Fi and wired internet work; when
+offline, the check times out within five seconds and the installed app starts
+normally. Failed downloads also leave the installed version usable.
+
+```sh
+offcode setup -updates=notify  # only announce new releases
+offcode setup -updates=off     # no startup network check
+offcode update -check          # manual check
+offcode update                 # manual installation
+```
+
+Updates download only the matching executable, verify it against the release's
+`SHA256SUMS`, and keep the previous binary as `<executable>.previous`. Models,
+preferences and conversations are preserved. A filesystem lock prevents two
+processes replacing the same executable concurrently and is released even if
+an update process crashes. The installation directory must be writable;
+permission errors or a locked previous Windows executable are reported and
+the current app continues. The installed-app registry version belongs to the
+GUI installer and changes when that installer is run again; `offcode version`
+reports the running binary's version.
+
+`OFFCODE_SKIP_UPDATE=1` skips startup checks for a launch. Source builds use a
+`-dev` version and do not update themselves. Release CI injects the tag into
+the binary and publishes checksums; automatic updates require releases with
+those checksums. Versions up to v0.2.1 do not contain this updater: install a
+new release once to enable it. These changes are currently unreleased.

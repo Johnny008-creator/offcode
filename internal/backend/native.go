@@ -82,9 +82,12 @@ const defaultNumCtx = 8192
 func numCtxOption() *nativeOptions {
 	n := defaultNumCtx
 	if v := os.Getenv("OFFCODE_NUM_CTX"); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
 			n = parsed
 		}
+	}
+	if n == 0 {
+		return nil
 	}
 	return &nativeOptions{NumCtx: n}
 }

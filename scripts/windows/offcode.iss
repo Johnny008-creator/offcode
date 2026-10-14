@@ -72,6 +72,26 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\..\bin\offcode.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
+[Tasks]
+Name: "keepserver"; Description: "Server address"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "keepgpu"; Description: "GPU selection and acceleration"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "keepmodels"; Description: "Model storage directory"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "keepcontext"; Description: "Context size (unchecked: Offcode uses 8192 tokens)"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "keepparallel"; Description: "Parallel requests and loaded-model limits"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "keepcache"; Description: "Flash Attention and KV cache"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "keepkeepalive"; Description: "Time models stay loaded"; GroupDescription: "Preserve selected Ollama settings (unchecked = no saved fallback):"
+Name: "ollamaexternal"; Description: "Use existing server only; never start Ollama automatically"; GroupDescription: "Ollama startup:"; Flags: unchecked
+Name: "installollama"; Description: "Install missing Ollama using winget (only needed for model downloads)"; Flags: unchecked
+Name: "spark"; Description: "Spark - qwen3:1.7b (smallest)"; GroupDescription: "Download models (optional; large downloads):"; Flags: unchecked
+Name: "ember"; Description: "Ember - qwen3.5:4b"; GroupDescription: "Download models (optional; large downloads):"; Flags: unchecked
+Name: "forge"; Description: "Forge - qwen3:8b"; GroupDescription: "Download models (optional; large downloads):"; Flags: unchecked
+Name: "anvil"; Description: "Anvil - gemma4:12b"; GroupDescription: "Download models (optional; large downloads):"; Flags: unchecked
+Name: "foundry"; Description: "Foundry - gpt-oss:20b (largest)"; GroupDescription: "Download models (optional; large downloads):"; Flags: unchecked
+Name: "embedding"; Description: "Semantic search - nomic-embed-text"; GroupDescription: "Download models (optional; large downloads):"; Flags: unchecked
+Name: "updateauto"; Description: "Check and automatically install new versions at startup"; GroupDescription: "Updates (skipped when offline):"; Flags: exclusive
+Name: "updatenotify"; Description: "Check and notify only"; GroupDescription: "Updates (skipped when offline):"; Flags: exclusive unchecked
+Name: "updateoff"; Description: "Disable startup update checks"; GroupDescription: "Updates (skipped when offline):"; Flags: exclusive unchecked
+
 [Icons]
 ; A plain shortcut to the exe would flash a console and close immediately
 ; since offcode is a CLI tool, not a GUI app — launch it inside a kept-open
@@ -87,8 +107,56 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
 
 [UninstallDelete]
 Type: files; Name: "{app}\offcode.exe"
+Type: files; Name: "{app}\offcode.exe.previous"
+Type: files; Name: "{app}\offcode.exe.update-lock"
 
 [Code]
+function SetupArguments(): string;
+var
+  Models, Mode, Updates, Preserve: string;
+begin
+  Mode := 'preserve';
+  if WizardIsTaskSelected('ollamaexternal') then Mode := 'external';
+  Preserve := '';
+  if WizardIsTaskSelected('keepserver') then Preserve := Preserve + 'server,';
+  if WizardIsTaskSelected('keepgpu') then Preserve := Preserve + 'gpu,';
+  if WizardIsTaskSelected('keepmodels') then Preserve := Preserve + 'models,';
+  if WizardIsTaskSelected('keepcontext') then Preserve := Preserve + 'context,';
+  if WizardIsTaskSelected('keepparallel') then Preserve := Preserve + 'parallel,';
+  if WizardIsTaskSelected('keepcache') then Preserve := Preserve + 'cache,';
+  if WizardIsTaskSelected('keepkeepalive') then Preserve := Preserve + 'keepalive,';
+  if Preserve = '' then Preserve := 'none'
+  else Delete(Preserve, Length(Preserve), 1);
+  Updates := 'auto';
+  if WizardIsTaskSelected('updatenotify') then Updates := 'notify';
+  if WizardIsTaskSelected('updateoff') then Updates := 'off';
+  Models := '';
+  if WizardIsTaskSelected('spark') then Models := Models + 'spark,';
+  if WizardIsTaskSelected('ember') then Models := Models + 'ember,';
+  if WizardIsTaskSelected('forge') then Models := Models + 'forge,';
+  if WizardIsTaskSelected('anvil') then Models := Models + 'anvil,';
+  if WizardIsTaskSelected('foundry') then Models := Models + 'foundry,';
+  if WizardIsTaskSelected('embedding') then Models := Models + 'embedding,';
+  if Models = '' then Models := 'none'
+  else Delete(Models, Length(Models), 1);
+  Result := 'setup -ollama=' + Mode + ' -preserve=' + Preserve + ' -updates=' + Updates + ' -models=' + Models;
+  if WizardIsTaskSelected('installollama') then Result := Result + ' -install-ollama';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if not Exec(ExpandConstant('{app}\{#MyAppExeName}'), SetupArguments(), '', SW_SHOW,
+      ewWaitUntilTerminated, ResultCode) then
+      MsgBox('Could not start setup. Run offcode setup -interactive to retry.', mbError, MB_OK)
+    else if ResultCode <> 0 then
+      MsgBox('Offcode installed, but setup or model downloads failed. Run offcode setup -interactive to resume downloads.', mbError, MB_OK);
+  end;
+end;
+
 function NeedsAddPath(Param: string): boolean;
 var
   OrigPath: string;

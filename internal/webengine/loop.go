@@ -354,6 +354,8 @@ func (s *Session) waitForConfirm(tc backend.ToolCall) bool {
 	ch := make(chan bool, 1)
 	s.mu.Lock()
 	s.pendingConfirmTC = &tc
+	s.requestSequence++
+	s.pendingConfirmID = fmt.Sprintf("%s:%d", s.sessionID, s.requestSequence)
 	s.pendingPreview = diffPreview(tc)
 	s.confirmCh = ch
 	s.status = "confirming"
@@ -369,6 +371,8 @@ func (s *Session) waitForConfirm(tc backend.ToolCall) bool {
 
 	s.mu.Lock()
 	s.pendingConfirmTC = nil
+	s.pendingConfirmID = ""
+	s.confirmCh = nil
 	s.status = "generating"
 	s.mu.Unlock()
 	return allow
@@ -392,6 +396,8 @@ func (s *Session) handleAskUser(tc backend.ToolCall) {
 	}
 	s.mu.Lock()
 	s.pendingAskTC = &tc
+	s.requestSequence++
+	s.pendingAskID = fmt.Sprintf("%s:%d", s.sessionID, s.requestSequence)
 	s.pendingAskQuestion = a.Question
 	s.pendingAskOptions = a.Options
 	s.pendingAskRecommended = rec
@@ -410,6 +416,8 @@ func (s *Session) handleAskUser(tc backend.ToolCall) {
 
 	s.mu.Lock()
 	s.pendingAskTC = nil
+	s.pendingAskID = ""
+	s.askCh = nil
 	s.status = "generating"
 	s.mu.Unlock()
 
@@ -646,7 +654,11 @@ func (s *Session) recordToolResult(tc backend.ToolCall, content string, isError 
 		Name:       tc.Function.Name,
 		Content:    content,
 	})
-	s.blocks = append(s.blocks, artifactBlock(tc, content, isError, len(s.blocks)))
+	b := artifactBlock(tc, content, isError, len(s.blocks))
+	if b.ArtifactURL != "" {
+		b.ArtifactURL += "&session=" + s.sessionID
+	}
+	s.blocks = append(s.blocks, b)
 	s.notify()
 	s.mu.Unlock()
 }

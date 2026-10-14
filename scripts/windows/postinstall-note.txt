@@ -8,3 +8,17 @@ An already-open terminal won't see the updated PATH — Windows consoles
 only read their environment once, at launch, no matter what this
 installer does. A new window (from the Start Menu, or typing cmd/
 powershell in Run) will have it right away.
+
+Your selected model downloads and preferences were handled by Offcode setup.
+System prompts, tier identities and skills are included in the program.
+To change choices or resume failed downloads, run:
+
+    offcode setup -interactive
+
+Each Ollama setting group has its own preservation checkbox (server, GPU,
+model directory, context, parallelism, cache and keep-alive). All start checked.
+Unchecked groups are not saved/restored; current system settings remain intact.
+For a custom Ollama
+launcher/service, choose external mode and start that server yourself.
+Run offcode doctor after a chat message to inspect GPU/CPU placement.
+Startup updates default to automatic; offline checks are skipped.

@@ -2,13 +2,16 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/Johnny008-creator/offcode/internal/config"
+	"github.com/Johnny008-creator/offcode/internal/setup"
 )
 
 // ensureOllamaRunning best-effort auto-starts a local `ollama serve` when
@@ -26,8 +29,20 @@ func ensureOllamaRunning(cfg config.Config) {
 	if cfg.Backend != "ollama" {
 		return
 	}
-	root := strings.TrimSuffix(cfg.BaseURL, "/v1")
+	root := strings.TrimSuffix(strings.TrimRight(cfg.BaseURL, "/"), "/v1")
+	settings, err := setup.Load()
+	if err != nil || settings.OllamaMode == "external" {
+		return
+	}
 	if ollamaReachable(root) {
+		return
+	}
+	u, err := url.Parse(root)
+	if err != nil || u.Scheme != "http" || u.User != nil || (u.Path != "" && u.Path != "/") {
+		return
+	}
+	ip := net.ParseIP(u.Hostname())
+	if u.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return
 	}
 	path, err := exec.LookPath("ollama")
@@ -35,10 +50,12 @@ func ensureOllamaRunning(cfg config.Config) {
 		return
 	}
 	cmd := exec.Command(path, "serve")
+	cmd.Env = append(os.Environ(), "OLLAMA_HOST="+u.Host)
 	detachOllamaProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		return
 	}
+	go cmd.Wait()
 	fmt.Fprintln(os.Stderr, "offcode: Ollama wasn't running — starting it now...")
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

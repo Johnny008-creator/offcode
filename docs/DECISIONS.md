@@ -656,3 +656,89 @@ silently when the binary isn't on PATH, the backend is LM Studio, or
 Ollama is already reachable — same connection-refused error as before
 surfaces if auto-start doesn't help. Covered by
 `cmd/offcode/ollamaboot_test.go`.
+
+## 2026-10-11 — Installer preferences, Ollama preservation and startup updates
+
+The Windows GPU report could not be reproduced on the user's Windows machine
+from this Linux environment. Inspection found no `num_gpu=0` or forced CPU
+flag, but found two concrete integration problems: `OLLAMA_HOST` was ignored,
+and every native chat request overrode server/Modelfile context with 8192.
+A larger context may alter VRAM placement. We cannot claim either was the
+specific cause of the user's RX 6500 XT report.
+
+All installers now call the same `offcode setup` implementation. Preserve is
+the default: save only an allowlist of backend/GPU environment settings as a
+fallback, honor current environment (plus missing Windows registry values),
+and omit the native context override unless OFFCODE_NUM_CTX was explicitly
+set. Auto retains the 8192 context choice; external never auto-starts Ollama.
+No service, GPU driver, running Ollama or existing model files are modified.
+Settings only present in a custom service/launcher must be kept by using that
+service; Offcode cannot reconstruct an arbitrary launcher from its client
+process. Autostart is restricted to local loopback HTTP, uses the selected
+port, and reaps the detached child after it exits. Doctor now uses the selected
+Ollama endpoint and reports loaded-model VRAM from `/api/ps`.
+
+The setup command offers all five tiers, semantic-search embeddings and custom
+tags. It lists installed models first, skips them without network pulls, streams
+missing-model pull progress, handles API-level errors and truncated streams,
+and sets a default only after a successful model selection. Existing prompts,
+tier identities, skills and web assets already ship embedded; duplicating these
+into Ollama Modelfiles would create drift and duplicate system instructions.
+Optional media, voice, Pandoc and search services remain separate dependencies.
+
+Startup updates run before the TUI or web server starts. They compare stable
+numeric versions, timeout checks in five seconds, allow auto/notify/off, fetch
+only official matching release assets, verify SHA256 and exact size, stage in
+the installation directory, preserve permissions, rename the previous binary
+with rollback on replacement failure, and relaunch with original arguments.
+OS file locking handles simultaneous launches and releases locks on crashes.
+A raw old binary is retained as .previous; no config/models/sessions are touched.
+Release CI now injects the tag into AppVersion and publishes SHA256SUMS.
+Development builds skip updates. Existing v0.2.1 installs require a one-time
+new installation; no release has been published during this change.
+
+Verification: full short Go suite with race detection, go vet, Linux build and
+Windows amd64 cross-build. Added regressions cover host/flag precedence, saved
+environment precedence/allowlist, context omission, model selection, successful
+and failed/truncated pull streams, stable-version comparisons, HTTP/offline
+errors, checksum mismatch, partial download, foreign URLs, rollback, concurrent
+updater locks and replacement of an actual running child executable. Windows
+native execution and this user's GPU configuration remain unverified locally.
+References: https://docs.ollama.com/faq and https://docs.ollama.com/gpu.
+
+Additional verification used the built CLI against an isolated local HTTP
+fixture: it reused installed Spark/embedding models, pulled only missing Forge,
+selected Spark as the default, saved the GPU environment and server address,
+and reused that saved endpoint in a second process with no OLLAMA_HOST set.
+Both workflow YAML files parsed successfully. Windows CI now also parses the
+PowerShell script, compiles Inno Setup and runs the PowerShell local install /
+setup / uninstall smoke path; those Windows checks have not run locally.
+
+## 2026-10-11 — Granular preservation checkboxes
+
+The user requested per-setting choices instead of preserving everything at
+once. Seven independent groups now cover server address, GPU settings, model
+storage, context, parallelism, Flash Attention/KV cache, and keep-alive. Inno
+Setup renders native checkboxes; the shared cmd/PowerShell setup wizard uses
+an arrow/Space checkbox picker, with a numbered fallback for redirected input.
+Automation uses `-preserve=server,gpu` (or all/none); PowerShell forwards
+`-Preserve`. Existing-server-only startup is independent of the selections.
+
+A nil selection migrates previous settings (preserve/external = all, auto =
+none), while an explicit empty array persists an unchecked selection. Capturing
+or applying settings filters by the checked groups and drops unchecked saved
+values. Main no longer applies old fallback settings before running setup,
+preventing removed groups from leaking into the new selection. Current process,
+Windows registry and running service configuration are never destructively
+reset; unchecked means no stored fallback. Context unchecked restores Offcode's
+normal 8192-token request default unless explicitly overridden by the user.
+
+Regressions cover server-only restore, independent context/GPU selection,
+dropping previously saved groups, current environment precedence, migration,
+empty selection round-trip, invalid selection and repeated setup changes.
+
+Validation: full short race suite and go vet passed; Linux and Windows amd64
+binaries rebuilt. A real PTY run selected only GPU using arrow/Space keys and
+verified the old saved server fallback disappeared; redirected-input setup
+selected only the server. Windows CI additionally checks PowerShell forwarding
+of the server-only selection. Native Windows GUI execution remains pending.

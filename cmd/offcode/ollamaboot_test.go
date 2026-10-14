@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -56,6 +57,9 @@ func TestEnsureOllamaRunningNoopWhenBinaryMissing(t *testing.T) {
 }
 
 func TestEnsureOllamaRunningStartsAFoundBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix shell fixture; process replacement has a portable test in internal/updater")
+	}
 	bin := t.TempDir()
 	marker := filepath.Join(bin, "started")
 	script := "#!/bin/sh\n: > '" + marker + "'\nsleep 30\n"

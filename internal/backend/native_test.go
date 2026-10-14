@@ -73,3 +73,15 @@ func TestStreamChatNativeNumCtxEnvOverride(t *testing.T) {
 		t.Fatalf("num_ctx=%d, want 32768 from OFFCODE_NUM_CTX override", opts.NumCtx)
 	}
 }
+
+func TestPreservedOllamaOptions(t *testing.T) {
+	t.Setenv("OFFCODE_NUM_CTX", "0")
+	req := nativeChatRequest{Model: "test", Options: numCtxOption()}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "num_ctx") || strings.Contains(string(data), "num_gpu") || strings.Contains(string(data), "options") {
+		t.Fatalf("must leave server settings untouched: %s", data)
+	}
+}

@@ -1,5 +1,37 @@
 # offcode roadmap / backlog
 
+## Handoff — 2026-10-11 (Codex: installation and updates, unreleased)
+
+The user's new installer/update requests take priority over the older live-test
+backlog below. Implemented in the working tree:
+
+- Follow-up: independent preservation checkboxes for server, GPU, model path,
+  context, parallelism, cache and keep-alive. GUI uses native checkboxes; console
+  uses arrow/Space selection. `-preserve=server,gpu` supports automation.
+- Shared `offcode setup` wizard/flags wired into GUI, cmd and PowerShell
+  installers: preserve Ollama GPU/server/context settings (default), auto or
+  external server; model multiselection; update auto/notify/off preferences.
+- `OLLAMA_HOST` resolution, Windows environment fallback, loopback-only
+  autostart with correct port, preserved context settings, and doctor GPU/CPU
+  allocation output. The user's exact Windows CPU-only failure is **not yet
+  reproduced**; no claim that an unsupported GPU/driver has been fixed.
+- Selected tier/custom model downloads with installed-model reuse, resumable
+  retries and embedded system prompts/skills. Optional Windows winget install
+  for missing Ollama; existing installations are not reset.
+- Startup stable-release checks and verified automatic updates with offline
+  timeout, rollback copy, process locking and relaunch. Manual `offcode update`
+  and `-check`; development binaries do not self-update. Release workflow
+  stamps versions and generates checksums.
+
+Validation and design details are appended in DECISIONS.md; usage is in README.
+No release was published: v0.2.1 remains the latest release from the earlier
+session. To ship these changes, run native Windows CI/installer checks and
+publish a new tagged release. Old installs need that release installed once.
+The previous mobile/multi-tab, LM Studio and optional-service live-test gaps
+below remain outstanding.
+
+---
+
 ## Handoff — 2026-10-11 (Claude session → next session, possibly Codex)
 
 Working tree is clean, everything below is committed and pushed to
