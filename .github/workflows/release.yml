@@ -41,13 +41,13 @@ jobs:
       - name: Build offcode.exe
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
           go build -trimpath -ldflags "-X github.com/Johnny008-creator/offcode/internal/tui.AppVersion=$version" -o bin\offcode.exe .\cmd\offcode
       - name: Derive version from tag
         id: ver
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:GITHUB_REF_NAME
           $version = $tag -replace '^v', ''
           echo "version=$version" >> $env:GITHUB_OUTPUT
       - name: Compile installer (Inno Setup, preinstalled on windows-latest)

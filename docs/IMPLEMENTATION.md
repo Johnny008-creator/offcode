@@ -1,7 +1,36 @@
-# Roadmap implementation status — 2026-10-09
+# Roadmap implementation status
 
 Implementation and live verification are tracked separately: a mock protocol test is not a successful
 model run, and a skipped integration test is not a pass.
+
+## Public repository validation — 2026-10-14
+
+[Linux and Windows CI](https://github.com/Johnny008-creator/offcode/actions/runs/38593804542)
+passed, including native Windows Go tests, Inno Setup compilation, PowerShell
+installation/setup, preservation preferences, installed version reporting and
+uninstall. [Security CI](https://github.com/Johnny008-creator/offcode/actions/runs/38593804502)
+also passed. This supersedes the earlier lack of Windows CI access below;
+interactive GUI/batch installation and real Windows GPU behavior remain unverified.
+
+Local validation passed: offline race tests, Linux/Windows vet and builds,
+Python dataset tests, JavaScript syntax checks, workflow lint, documentation links,
+and a Chromium smoke check for Markdown rendering and dangerous HTML removal.
+Gitleaks found no secrets in the current files or reachable history (67 commits
+at audit time); this is a scanner result, not a guarantee that all private data
+has been identified. Existing historical author email metadata and old notes
+were not rewritten. New commits use a GitHub noreply email.
+
+Go 1.27.2 and the updated system dependency remove the reachable vulnerabilities
+reported by govulncheck. The Linux scan reports none; the Windows scan reports
+no called vulnerabilities, with two module-level findings in unused code.
+DOMPurify was updated from 3.1.6 to 3.4.17. Web requests now require a local Host
+and matching browser origin, with regression coverage for DNS rebinding and
+sandboxed preview origins. These changes are on the development branch and
+are not present in the old v0.2.1 release binaries.
+
+Repository settings enable secret scanning, push protection, dependency alerts,
+automated security updates and private vulnerability reporting. The owner has
+not selected an open-source license; see [licensing status](../LICENSING.md).
 
 ## Implemented
 
@@ -85,12 +114,9 @@ or automatic model promotion is installed.
 - [ ] Actual LoRA training and model import/evaluation. PyTorch, Transformers and
   PEFT are missing from the active Python environment; suitable local base
   weights and reviewed real examples have not been selected for a run. No personal adapter has been trained or activated.
-- [ ] Windows runtime and UI behavior. Cross-build/static checks passed; no
-  Windows runtime or CI execution was available in this session.
-- [ ] The three Windows installers (`scripts/windows/offcode.iss`/`.bat`/`.ps1`)
-  and the `release.yml` Inno Setup build step. No `iscc`/`wine` is available in
-  this sandbox, so none have actually been compiled or run — only
-  hand-reviewed against Inno Setup/batch/PowerShell syntax rules.
+- [ ] Interactive Windows UI, batch installation and actual GPU behavior.
+  Native CI compilation and PowerShell install/setup/uninstall pass (see above);
+  these checks do not exercise the GUI wizard interactively.
 - [ ] Chromium/MCP integration tests and browser microphone/visual testing.
   External processes/network/browser sandbox restrictions remain.
 

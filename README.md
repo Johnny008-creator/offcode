@@ -151,8 +151,9 @@ environment once, at launch — so open a fresh one either way.
 Tagged releases (`.github/workflows/release.yml`) build `offcode.exe` and
 `offcode-setup-<version>.exe` on `windows-latest` (Inno Setup ships
 preinstalled on that runner image) and attach both, plus the Linux binary,
-to the GitHub release. None of the three installers have been run on a real
-Windows machine yet — only cross-built/vetted and reviewed on Linux, per
+to the GitHub release. Native Windows CI compiles the Inno Setup installer and exercises PowerShell
+installation, setup, version reporting and uninstall. Interactive GUI and batch
+installation still need manual testing; see
 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
 
 ## Semantic code search

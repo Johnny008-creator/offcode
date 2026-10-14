@@ -8,7 +8,8 @@ for usage and [DECISIONS](DECISIONS.md) for design details.
 
 Before the next release:
 
-- Complete native Windows installer and setup validation.
+- Exercise the Windows GUI wizard and batch installer interactively; native CI
+  compilation and PowerShell installation/setup/uninstall now pass.
 - Exercise mobile layouts and multi-tab session behavior in a real browser.
 - Run a live LM Studio campaign and semantic ranking tests.
 - Validate optional video/music, transcription, document export and training
