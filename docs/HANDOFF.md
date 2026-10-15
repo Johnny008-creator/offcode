@@ -22,8 +22,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
 2. **DONE: live semantic search** with local nomic-embed-text.
 3. **DONE: document export and voice** with real local tools.
 4. **DONE: small-model LM Studio trial** (llmster 0.0.25, qwen3-1.7b, CPU).
-5. **IN PROGRESS (resumed 2026-10-15): model/tool/plan reliability campaign.**
-   See the October 15 continuation below; earlier paused instructions are historical.
+5. **DONE (2026-10-15): model/tool/plan reliability campaign.** Results in
+   "Completed: plan reliability" below; earlier paused instructions are historical.
 6. Media workflow validation and training pipeline validation. Do not invent
    successful video/music generations or training-quality improvements.
 7. Reconcile historical roadmap notes with verified results; final checks.
@@ -169,6 +169,40 @@ loaded; `~/.lmstudio/bin/lms daemon down` stops it if unneeded.
   without skips. Previous LM Studio, semantic, document and voice results are
   now reflected in IMPLEMENTATION.md.
 
-Local evidence: `2026-10-15/plan-short` (aborted GPU run), `plan-long-cpu`
-(ongoing), `ollama-cpu.log`, and `kernel-vulkan.log` in the validation directory.
-Push remains deferred until the complete batch is ready.
+Local evidence: `2026-10-15/plan-short` (aborted GPU run), `plan-long-cpu`,
+`plan-long-gpu-qwen`, `ollama-cpu.log`, `ollama-gpu-qwen.log` and
+`kernel-vulkan.log` in the validation directory.
+
+### Completed: plan reliability (item 5)
+
+Long suite (`--suite long`, explicit four-step planning request, 900 s limit).
+"Before/after" counts `plan_update` calls before and after the engine's
+unfinished-plan reminder.
+
+| run | case | files | plan_update before/after | finished plan |
+|---|---|---|---|---|
+| gemma4:12b CPU | inventory | pass | 3 / 1 | yes |
+| gemma4:12b CPU | settings | pass | 5 / 0 | yes, no reminder |
+| qwen3:8b CPU | inventory | fail: literal `\n` in CSV | 1 / 4 | yes, then timeout |
+| qwen3:8b CPU | settings | incomplete | 0 / 0 | timeout mid-work |
+| qwen3:8b GPU | inventory 1 | pass | 1 / 3 | yes |
+| qwen3:8b GPU | inventory 2 | fail: README omits `inventory.csv` name | 4 / 1 | yes |
+| qwen3:8b GPU | settings 1 | pass | 4 / 0 | 4/5, timeout on final step |
+| qwen3:8b GPU | settings 2 | pass (1 recovered edit error) | 3 / 2 | yes |
+
+qwen3:8b ran fully on the RX 6500 XT (37/37 layers, 8192 context, no
+`ErrorDeviceLost`); Gemma's GPU run is still blocked by the Vulkan crash.
+
+Conclusions: both models create a plan when asked and keep it roughly in sync,
+but usually lag by a step and often close the last steps only after the
+reminder, so the reminder remains necessary. No case ended with an unfinished
+plan and no answer. Settings-1 found and fixed its own missed `debug` edit during
+verification. qwen3:8b repeatedly double-escapes newlines (`\\n`) in write
+content and then reports the file as verified — model quality, not tool bugs.
+
+Fix from this campaign (2fc2006): out-of-order `plan_update` used to auto-promote
+another step, leaving several `in_progress` with no hint about open earlier
+steps (CPU qwen run). It now names the open steps. Live-confirmed in GPU
+settings-2: the model marked step 2 done, got the hint, and immediately marked
+step 1 done. Sample is small (1–2 runs per case); not a quality benchmark.
+Ollama started for validation has been stopped.

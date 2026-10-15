@@ -778,3 +778,22 @@ agent loop. Regression coverage includes an empty body, partial text and
 partial tool calls. This fixes the incomplete-stream case; the raw failing
 GPU response was not captured, so it does not establish that every Vulkan
 failure takes this path or repair the underlying backend/driver failure.
+
+## 2026-10-15 — Out-of-order plan_update points at the open steps
+
+In the CPU long-suite run, qwen3:8b did the work for every step of the
+inventory task but called `plan_update` only for the last step. The handler
+then auto-promoted the first pending step, so steps 0 and 1 were both
+`in_progress` and the result text gave no hint that four steps were still
+open. Only the end-of-turn reminder recovered it.
+
+Marking a step done or skipped now lists any earlier unfinished steps and asks
+the model to mark them done if the work is finished, or to do it first. No step
+is auto-promoted while earlier steps are open or another step is already
+`in_progress`. In-order completion behaves as before. Web engine and TUI are
+both changed; regression: `TestPlanUpdateOutOfOrderPointsAtEarlierSteps`.
+The same run also had qwen3:8b write `\n` literally (double-escaped JSON) into
+`inventory.csv` and then claim it verified the file; that is model quality, the
+write tool stored exactly what it received.
+Live-confirmed afterwards on GPU qwen3:8b (settings, repeat 2): after marking
+step 2 done before step 1 and receiving the hint, it marked step 1 done next.

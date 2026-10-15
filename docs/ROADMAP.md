@@ -18,7 +18,6 @@ Before the next release:
   LM Studio trial have passed their integration checks; see HANDOFF for limits.
 - Validate optional video/music, transcription, document export and training
   against installed dependencies. Offline protocol tests are not live validation.
-- Finish evaluating model reliability when updating plans after tool work.
 
 Historical implementation and test evidence is tracked in
 [IMPLEMENTATION](IMPLEMENTATION.md). Hardware-specific results do not guarantee
