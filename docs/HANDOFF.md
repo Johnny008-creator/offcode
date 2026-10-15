@@ -8,7 +8,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
 
 - Continue roadmap work autonomously, sequentially, starting with the web UI.
 - Windows manual testing belongs to the owner; do not spend this campaign on it.
-- Do not publish a release or create release tags.
+- v0.3.0 was released on the owner's request (2026-10-15). Do not publish
+  further releases or tags without a new explicit request.
 - LM Studio is only a small-model trial; do not download/load a large model.
 - Preserve user data and settings. Use isolated test homes/workspaces.
 - Commit and push completed, validated chunks. Record real failures and skips;
@@ -32,7 +33,7 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
 
 Clean starting commit: ffa49f4. Public-repository preparation is complete;
 Linux/Windows CI and security checks passed for the implementation commit
-f0b9955. No new release. Own-code licensing decision remains open.
+f0b9955. Released as v0.3.0 on 2026-10-15. Own-code licensing decision remains open.
 
 ### Completed: web UI reliability
 

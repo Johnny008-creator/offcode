@@ -36,7 +36,7 @@ const maxPlanNudges = 2
 // model ends a round with neither text nor tool calls.
 const emptyReplyNudge = "You stopped without replying. If the task is not done, continue it with real tool calls — the tool results above may say what went wrong. If it is done, give the user your final answer."
 
-var AppVersion = "0.2.2-dev"
+var AppVersion = "0.3.1-dev"
 
 // maxToolCallParseRetries bounds how many extra attempts a turn gets after
 // Ollama fails to parse a model's own tool-call output against its chat

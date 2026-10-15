@@ -2,8 +2,8 @@
 
 ## Current development status
 
-Installation preferences, model downloads and automatic updates are implemented
-on the development branch and await a new release. See [README](../README.md)
+v0.3.0 (2026-10-15) ships installation preferences, model downloads and
+automatic updates. See [README](../README.md)
 for usage and [DECISIONS](DECISIONS.md) for design details.
 
 For the current continuation checkpoint and measured results, read
