@@ -34,3 +34,22 @@ case stops at the question rather than picking an answer for the user.
 streamed tool-call assembly, tool integration, queue/history/download protocol,
 index invalidation, cancellation and output preservation. These tests are not
 a substitute for running the real Ollama/LM Studio/media services.
+
+## Plan reliability
+
+`scripts/eval/plan_reliability.py` uses the same isolated `eval-case` engine.
+Its default `--suite short` measures four short tasks without an explicit
+planning request. `--suite long` requests a plan and step updates for two
+longer file workflows; `--suite all` runs both. For example:
+
+```sh
+python3 scripts/eval/plan_reliability.py --suite long \
+  --models qwen3:8b gemma4:12b --output /tmp/offcode-plan-long
+```
+
+Each task runs twice by default. Reports record file checks, tool errors,
+plan creation/update calls, final plan status and engine reminders. The long
+suite checks exact CSV/JSON values and required documentation references.
+Read the transcript to distinguish updates during work from updates made only
+after a reminder; a completed plan alone does not prove the work is correct.
+Short tasks that never create a plan do not measure plan-update reliability.

@@ -1,6 +1,6 @@
 # Development handoff
 
-Updated: 2026-10-14. Read this file first when continuing development, then
+Updated: 2026-10-15. Read this file first when continuing development, then
 ROADMAP.md and IMPLEMENTATION.md. Update this after each completed item and
 before stopping. Keep private paths, transcripts and credentials out of Git.
 
@@ -22,8 +22,8 @@ before stopping. Keep private paths, transcripts and credentials out of Git.
 2. **DONE: live semantic search** with local nomic-embed-text.
 3. **DONE: document export and voice** with real local tools.
 4. **DONE: small-model LM Studio trial** (llmster 0.0.25, qwen3-1.7b, CPU).
-5. **IN PROGRESS (paused 2026-10-14): model/tool/plan reliability campaign.**
-   See "Paused: plan reliability" below for exact resume steps.
+5. **IN PROGRESS (resumed 2026-10-15): model/tool/plan reliability campaign.**
+   See the October 15 continuation below; earlier paused instructions are historical.
 6. Media workflow validation and training pipeline validation. Do not invent
    successful video/music generations or training-quality improvements.
 7. Reconcile historical roadmap notes with verified results; final checks.
@@ -148,3 +148,27 @@ Resume:
 4. Record results here, stop Ollama if you started it, commit.
 LM Studio's llmster daemon (started by Codex) is still running with no model
 loaded; `~/.lmstudio/bin/lms daemon down` stops it if unneeded.
+
+### Continuation — 2026-10-15
+
+- Resumed Gemma's short suite, but Vulkan failed during initial prompt processing
+  with `ErrorDeviceLost`; the kernel recorded an amdgpu compute-ring timeout.
+  Stopped that series. Its empty/error outcomes are not model-quality evidence.
+- Started a temporary user-owned CPU-only Ollama process; no service/config
+  changes. Stop this process after validation.
+- Added two explicit four-step planning workflows (`--suite long`) with exact
+  data checks. CPU run uses one repetition per model/task and a 900-second
+  per-case limit. This is a small diagnostic sample, not a quality benchmark.
+- First Gemma inventory case passed all output checks. It updated three steps
+  during work, missed the final verification step, then marked it done after
+  one engine reminder. All four steps finished without tool errors.
+- Native streams ending without `done: true` now report unexpected EOF instead
+  of finalizing partial answers/tool calls. Empty/text/tool-call regressions,
+  full short race suite, Linux/Windows vet and builds passed.
+- Real Chromium UI, rendered text/JPEG, and MCP filesystem/lifetime tests passed
+  without skips. Previous LM Studio, semantic, document and voice results are
+  now reflected in IMPLEMENTATION.md.
+
+Local evidence: `2026-10-15/plan-short` (aborted GPU run), `plan-long-cpu`
+(ongoing), `ollama-cpu.log`, and `kernel-vulkan.log` in the validation directory.
+Push remains deferred until the complete batch is ready.

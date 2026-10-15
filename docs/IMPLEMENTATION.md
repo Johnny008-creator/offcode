@@ -68,6 +68,24 @@ or automatic model promotion is installed.
 
 ## Verified here
 
+### Resumed validation — 2026-10-14/15
+
+- Real Ollama semantic ranking and incremental reindexing passed (October 14).
+- Real Pandoc DOCX/PDF export, Czech text/table readback and overwrite protection
+  passed. A DOCX table/link extraction defect was fixed with regression coverage.
+- Real eSpeak synthesis and whisper.cpp/base transcription passed integration;
+  transcription misrecognized the product name. Physical microphone input is
+  not covered by this result.
+- LM Studio's small CPU model completed a real ten-task trial and selected
+  reruns. Streaming reasoning, model discovery and tool execution work; the
+  1.7B model still produced invalid JSON and a broken calculator. See HANDOFF.md.
+- Chromium mobile/draft/multi-tab regression tests and real MCP filesystem-server
+  connection/lifetime tests passed again on October 15 without skips. Real
+  browser text extraction and JPEG previews passed too.
+- Model/plan campaign results and hardware limits are recorded in HANDOFF.md.
+
+### Earlier checks and implementation history
+
 - `go test -short -race ./...`: passed.
 - `go vet ./...`: passed.
 - `GOOS=windows GOARCH=amd64 go vet ./...`: passed.
@@ -98,27 +116,16 @@ or automatic model promotion is installed.
   of being retried, and `write` silently producing an empty file when a
   tool call's `content` argument arrived under a corrupted JSON key.
 
-## Still blocked / not runtime-verified
+## Remaining runtime limits
 
-- [ ] Live LM Studio campaign. Never exercised against a real LM Studio
-  instance — every live model test so far has been Ollama.
-- [ ] Live semantic ranking (`internal/semsearch`). The 2026-10-09 socket
-  restriction that blocked this no longer applies in a session with real
-  network access (confirmed 2026-10-10 — Ollama, SearXNG and ComfyUI are
-  all reachable here), but `semantic_search` specifically hasn't been
-  exercised against a real embedding model yet, just offline/mocked.
-- [ ] Real speech transcription. FFmpeg is installed, but `whisper-cli` and
-  `OFFCODE_WHISPER_MODEL` are missing.
-- [ ] Actual PDF/DOCX conversions. Pandoc and the default PDF engine XeLaTeX
-  are missing from PATH.
+- [ ] Larger-model LM Studio quality campaign (outside the authorized small-model trial).
 - [ ] Actual LoRA training and model import/evaluation. PyTorch, Transformers and
   PEFT are missing from the active Python environment; suitable local base
   weights and reviewed real examples have not been selected for a run. No personal adapter has been trained or activated.
 - [ ] Interactive Windows UI, batch installation and actual GPU behavior.
   Native CI compilation and PowerShell install/setup/uninstall pass (see above);
   these checks do not exercise the GUI wizard interactively.
-- [ ] Chromium/MCP integration tests and browser microphone/visual testing.
-  External processes/network/browser sandbox restrictions remain.
+- [ ] Physical browser microphone input and subjective visual-quality review.
 
 Setup: [extensions](EXTENSIONS.md), [training](TRAINING.md),
 [evaluation](EVALUATION.md). Run `bin/offcode doctor -extensions` in the target

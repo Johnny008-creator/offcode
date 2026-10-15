@@ -59,6 +59,49 @@ TASKS = [
 ]
 
 
+def check_inventory(work):
+    try:
+        rows = list(csv.DictReader((work/'inventory.csv').read_text().splitlines()))
+        totals = json.loads((work/'totals.json').read_text())
+        return (rows == [{'item': 'pencil', 'quantity': '3', 'price': '2'},
+                         {'item': 'notebook', 'quantity': '2', 'price': '5'},
+                         {'item': 'eraser', 'quantity': '4', 'price': '1'}]
+                and totals == {'pencil': 6, 'notebook': 10, 'eraser': 4, 'total': 20}
+                and '20' in (work/'summary.md').read_text()
+                and 'inventory.csv' in (work/'README.md').read_text())
+    except (OSError, ValueError):
+        return False
+
+
+def check_settings(work):
+    try:
+        original = json.loads((work/'config.original.json').read_text())
+        current = json.loads((work/'config.json').read_text())
+        return (original == {'host': 'localhost', 'port': 8080, 'debug': False}
+                and current == {'host': 'localhost', 'port': 9090, 'debug': True}
+                and all(s in (work/'CHANGELOG.md').read_text() for s in ('8080', '9090'))
+                and all(s in (work/'README.md').read_text() for s in ('localhost', '9090')))
+    except (OSError, ValueError):
+        return False
+
+
+# Explicit planning requests separate plan maintenance from spontaneous adoption.
+LONG_TASKS = [
+    ('inventory', 'Use a plan with at least four steps and keep it updated as you work. '
+     'Create inventory.csv with columns item,quantity,price and rows pencil,3,2; notebook,2,5; eraser,4,1. '
+     'Read it back, then calculate each row value and the grand total into totals.json '
+     '(keys pencil, notebook, eraser, total; numeric values). Write summary.md explaining the total, '
+     'and README.md describing inventory.csv. Read all outputs to verify them before finishing. '
+     'Use file tools; shell execution is unavailable.', check_inventory),
+    ('settings', 'Use a plan with at least four steps and update it after completing each step. '
+     'Write config.json with host localhost, port 8080 and debug false. Read it and save an identical '
+     'backup as config.original.json. Edit config.json to port 9090 and debug true, keeping host. '
+     'Write CHANGELOG.md documenting old and new settings, then README.md describing current host and port. '
+     'Read back both JSON files and docs to verify them before finishing. Use file tools; shell execution '
+     'is unavailable.', check_settings),
+]
+
+
 def tool_calls(blocks, name):
     return [b for b in blocks if b.get('kind') == 'tool_call' and b.get('tool_name') == name]
 
@@ -69,9 +112,13 @@ def summarize(result):
     plan = state.get('plan') or []
     statuses = [p.get('status') for p in plan]
     systems = [b.get('text', '') for b in blocks if b.get('kind') == 'system']
+    first_nudge = next((i for i, b in enumerate(blocks)
+                        if b.get('kind') == 'system' and 'unfinished steps' in b.get('text', '')), len(blocks))
     return {
         'plan_set_calls': len(tool_calls(blocks, 'plan_set')),
         'plan_update_calls': len(tool_calls(blocks, 'plan_update')),
+        'plan_updates_before_reminder': len(tool_calls(blocks[:first_nudge], 'plan_update')),
+        'plan_updates_after_reminder': len(tool_calls(blocks[first_nudge:], 'plan_update')),
         'plan_steps': len(plan),
         'plan_done': sum(s in ('done', 'skipped') for s in statuses),
         'plan_complete': bool(plan) and all(s in ('done', 'skipped') for s in statuses),
@@ -90,12 +137,13 @@ def main():
     p.add_argument('--repeats', type=int, default=2)
     p.add_argument('--output', required=True, help='new report directory')
     p.add_argument('--timeout', type=int, default=600)
+    p.add_argument('--suite', choices=['short', 'long', 'all'], default='short')
     a = p.parse_args()
     root = Path(a.output).resolve()
     root.mkdir(parents=True, exist_ok=False)
     url = (a.base_url or ('http://127.0.0.1:11434/v1' if a.backend == 'ollama' else 'http://127.0.0.1:1234/v1')).rstrip('/')
     endpoint = url.removesuffix('/v1')+'/api/tags' if a.backend == 'ollama' else url+'/models'
-    report = {'backend': a.backend, 'base_url': url, 'models': a.models, 'repeats': a.repeats, 'cases': []}
+    report = {'backend': a.backend, 'base_url': url, 'models': a.models, 'repeats': a.repeats, 'suite': a.suite, 'cases': []}
     try:
         with urllib.request.urlopen(endpoint, timeout=5) as response:
             json.load(response)
@@ -105,8 +153,9 @@ def main():
         print(f'Blocked: {exc}')
         return 1
     binary = str(Path(a.binary).resolve())
+    tasks = TASKS if a.suite == 'short' else LONG_TASKS if a.suite == 'long' else TASKS + LONG_TASKS
     for mi, model in enumerate(a.models):
-        for name, prompt, check in TASKS:
+        for name, prompt, check in tasks:
             for rep in range(1, a.repeats+1):
                 case = root/f'model-{mi+1}'/f'{name}-{rep}'
                 work, home = case/'work', case/'home'

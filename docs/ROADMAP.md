@@ -6,15 +6,19 @@ Installation preferences, model downloads and automatic updates are implemented
 on the development branch and await a new release. See [README](../README.md)
 for usage and [DECISIONS](DECISIONS.md) for design details.
 
+For the current continuation checkpoint and measured results, read
+[HANDOFF](HANDOFF.md) first. The older backlog below preserves historical
+rationale and is not a list of currently missing implementations.
+
 Before the next release:
 
 - Exercise the Windows GUI wizard and batch installer interactively; native CI
   compilation and PowerShell installation/setup/uninstall now pass.
-- Exercise mobile layouts and multi-tab session behavior in a real browser.
-- Run a live LM Studio campaign and semantic ranking tests.
+- Mobile layouts, multi-tab behavior, live semantic ranking and the small-model
+  LM Studio trial have passed their integration checks; see HANDOFF for limits.
 - Validate optional video/music, transcription, document export and training
   against installed dependencies. Offline protocol tests are not live validation.
-- Evaluate model reliability when updating plans after tool work.
+- Finish evaluating model reliability when updating plans after tool work.
 
 Historical implementation and test evidence is tracked in
 [IMPLEMENTATION](IMPLEMENTATION.md). Hardware-specific results do not guarantee
