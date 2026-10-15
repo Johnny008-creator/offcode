@@ -762,3 +762,19 @@ already set it (`/api/show`, cached per model). An explicit
 `OFFCODE_NUM_CTX` still wins over both. Regressions:
 `TestContextPreservedOnlyWhenConfigured`,
 `TestStreamChatNativeRespectsModelfileNumCtx`.
+
+## 2026-10-15 — Incomplete native streams are backend failures
+
+During the resumed Gemma plan campaign, the Vulkan runner reported
+`vk::Queue::submit: ErrorDeviceLost` while processing the initial prompt.
+Offcode's first transcript showed an empty-reply reminder and then stopped,
+so this run cannot be used to judge model quality. CPU validation is tracked
+separately in HANDOFF.md.
+
+Inspection found that the native client accepted EOF without ever receiving
+Ollama's `done: true` chunk. It now returns an unexpected-EOF error instead
+of finalizing an empty/partial answer or handing partial tool calls to the
+agent loop. Regression coverage includes an empty body, partial text and
+partial tool calls. This fixes the incomplete-stream case; the raw failing
+GPU response was not captured, so it does not establish that every Vulkan
+failure takes this path or repair the underlying backend/driver failure.

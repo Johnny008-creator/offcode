@@ -3,11 +3,39 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestStreamChatNativeRejectsIncompleteStream(t *testing.T) {
+	for _, body := range []string{
+		"",
+		`{"message":{"content":"partial reply"},"done":false}` + "\n",
+		`{"message":{"tool_calls":[{"function":{"name":"write","arguments":{"path":"x","content":"partial"}}}]},"done":false}` + "\n",
+	} {
+		t.Run(body, func(t *testing.T) {
+			c := NewClient("http://ollama.test/v1")
+			c.HTTPClient.Transport = embedTransport(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})
+			gotError := false
+			for ev := range c.StreamChatNative(context.Background(), ChatRequest{Model: "test"}, ThinkDefault) {
+				if ev.Kind == EventDone {
+					t.Fatal("incomplete stream must not finalize a reply or tool calls")
+				}
+				if ev.Kind == EventError {
+					gotError = errors.Is(ev.Err, io.ErrUnexpectedEOF)
+				}
+			}
+			if !gotError {
+				t.Fatal("expected unexpected EOF error")
+			}
+		})
+	}
+}
 
 // TestStreamChatNativeSetsNumCtx covers a real failure found live
 // (2026-10-10, see docs/DECISIONS.md): without an explicit num_ctx,

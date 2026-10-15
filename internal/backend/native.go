@@ -183,6 +183,7 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 		var contentBuf strings.Builder
 		var toolCalls []ToolCall
 		var usage Usage
+		var done bool
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -222,6 +223,7 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 				events <- StreamEvent{Kind: EventToolCallStart, ToolCallName: tc.Function.Name}
 			}
 			if chunk.Done {
+				done = true
 				usage = Usage{
 					PromptTokens:     chunk.PromptEvalCount,
 					CompletionTokens: chunk.EvalCount,
@@ -237,6 +239,14 @@ func (c *Client) StreamChatNative(ctx context.Context, req ChatRequest, think Th
 				return
 			}
 			events <- StreamEvent{Kind: EventError, Err: fmt.Errorf("read stream: %w", err)}
+			return
+		}
+		if !done {
+			err := fmt.Errorf("backend stream ended before completion: %w", io.ErrUnexpectedEOF)
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			events <- StreamEvent{Kind: EventError, Err: err}
 			return
 		}
 
