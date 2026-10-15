@@ -328,4 +328,4 @@ reports the running binary's version.
 `-dev` version and do not update themselves. Release CI injects the tag into
 the binary and publishes checksums; automatic updates require releases with
 those checksums. Versions up to v0.2.1 do not contain this updater: install a
-new release once to enable it. These changes are currently unreleased.
+new release (v0.3.0 or later) once to enable it.

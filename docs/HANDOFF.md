@@ -207,3 +207,13 @@ steps (CPU qwen run). It now names the open steps. Live-confirmed in GPU
 settings-2: the model marked step 2 done, got the hint, and immediately marked
 step 1 done. Sample is small (1–2 runs per case); not a quality benchmark.
 Ollama started for validation has been stopped.
+
+### Released: v0.3.0 (2026-10-15)
+
+Tag pushed on the owner's request; `release.yml` built Linux/Windows binaries,
+the Inno Setup installer, notices and `SHA256SUMS`, then published the release
+(release notes written manually). Downloaded `offcode-linux-amd64` matches its
+checksum and reports `v0.3.0`. First live self-update test: a local build with
+version 0.2.9 (isolated HOME) found v0.3.0, downloaded and verified it, replaced
+itself, kept `offcode.previous`, then reported `already up to date`. Windows
+update/installer paths remain untested on real hardware.
