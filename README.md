@@ -14,9 +14,51 @@ Design rationale and what's deliberately out of scope live in
 
 ## Download
 
-Grab the latest build from [GitHub Releases](https://github.com/Johnny008-creator/offcode/releases/latest):
-Linux binary, Windows `.exe`, or the Windows installer (GUI/cmd/PowerShell —
-see "Windows installer" below). Or build from source, see "Build".
+You also need [Ollama](https://ollama.com/download) (or LM Studio) for the
+models; offcode's setup can download models for you.
+
+### Windows
+
+**Easiest:** download and run the installer, then follow the wizard.
+
+[**⬇ Download offcode for Windows (installer)**](https://github.com/Johnny008-creator/offcode/releases/latest)
+— pick `offcode-setup-<version>.exe` under *Assets*.
+
+Or one line in **PowerShell**:
+
+```powershell
+irm https://raw.githubusercontent.com/Johnny008-creator/offcode/master/scripts/windows/install.ps1 | iex
+```
+
+Or one line in **cmd** (Windows 10/11 include `curl`):
+
+```bat
+curl -fsSLO https://raw.githubusercontent.com/Johnny008-creator/offcode/master/scripts/windows/install.bat && install.bat
+```
+
+All three install to `%LocalAppData%\Programs\offcode`, add it to `PATH` and
+open the setup wizard. Open a **new** terminal afterwards and run `offcode`.
+
+### Linux (x86_64)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Johnny008-creator/offcode/master/scripts/install.sh | sh
+```
+
+Installs to `~/.local/bin/offcode` after verifying the release checksum, then
+opens the setup wizard. `OFFCODE_VERSION=v0.3.0` pins a version,
+`OFFCODE_INSTALL_DIR` changes the directory, `sh install.sh --uninstall` removes it.
+
+### Direct downloads
+
+| File | For |
+| --- | --- |
+| [offcode-windows-amd64.exe](https://github.com/Johnny008-creator/offcode/releases/latest/download/offcode-windows-amd64.exe) | Windows, standalone (no installer) |
+| [offcode-linux-amd64](https://github.com/Johnny008-creator/offcode/releases/latest/download/offcode-linux-amd64) | Linux, standalone (`chmod +x` it) |
+| [SHA256SUMS](https://github.com/Johnny008-creator/offcode/releases/latest/download/SHA256SUMS) | checksums for all files |
+
+Installed release builds update themselves (see "Automatic updates"). To build
+from source, see "Build".
 
 ## Status
 

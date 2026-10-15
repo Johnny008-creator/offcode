@@ -1,0 +1,3 @@
+# cmd.exe mis-parses goto labels in LF-only batch files; keep CRLF bytes in Git
+# so raw.githubusercontent.com downloads work too.
+*.bat -text
