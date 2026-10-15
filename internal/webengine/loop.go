@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -492,6 +493,18 @@ func (s *Session) handlePlanUpdate(tc backend.ToolCall) {
 	result := fmt.Sprintf("step %d marked %s.", a.Index, a.Status)
 
 	if status == stepDone || status == stepSkipped {
+		// Seen live with qwen3:8b: it did every step's work but only marked the
+		// last one done. Auto-promoting the next pending step then left several
+		// steps in_progress at once. Point at the skipped-over steps instead.
+		var open []string
+		inProgress := false
+		for i := range s.plan {
+			finished := s.plan[i].Status == stepDone || s.plan[i].Status == stepSkipped
+			if i < a.Index && !finished {
+				open = append(open, strconv.Itoa(i))
+			}
+			inProgress = inProgress || s.plan[i].Status == stepInProgress
+		}
 		nextIdx := -1
 		for i := range s.plan {
 			if s.plan[i].Status == stepPending {
@@ -500,6 +513,10 @@ func (s *Session) handlePlanUpdate(tc backend.ToolCall) {
 			}
 		}
 		switch {
+		case len(open) > 0:
+			result += fmt.Sprintf(" Earlier step(s) %s are not marked done yet — if you already did that work,"+
+				" mark each one done now; otherwise do it before finishing.", strings.Join(open, ", "))
+		case inProgress:
 		case nextIdx >= 0:
 			s.plan[nextIdx].Status = stepInProgress
 			result += fmt.Sprintf(" Step %d (%q) is now marked in_progress automatically.", nextIdx, s.plan[nextIdx].Text)

@@ -101,3 +101,35 @@ func TestRunTurnNudgesOnceOnEmptyReply(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanUpdateOutOfOrderPointsAtEarlierSteps covers qwen3:8b live behavior:
+// it did all the work but marked only the last step done. That used to
+// auto-promote another step, leaving several in_progress at once and no hint
+// that the earlier steps were still open.
+func TestPlanUpdateOutOfOrderPointsAtEarlierSteps(t *testing.T) {
+	s := &Session{plan: []planStep{
+		{Text: "a", Status: stepInProgress}, {Text: "b"}, {Text: "c"},
+	}}
+	update := func(args string) string {
+		s.handlePlanUpdate(backend.ToolCall{Function: backend.FunctionCall{Name: "plan_update", Arguments: args}})
+		return s.blocks[len(s.blocks)-1].Text
+	}
+
+	got := update(`{"index":2,"status":"done"}`)
+	if !strings.Contains(got, "Earlier step(s) 0, 1 are not marked done") || strings.Contains(got, "automatically") {
+		t.Fatalf("out-of-order result = %q", got)
+	}
+	if s.plan[1].Status != stepPending {
+		t.Fatalf("step 1 promoted to %v, want pending", s.plan[1].Status)
+	}
+
+	update(`{"index":0,"status":"done"}`)
+	if got := update(`{"index":1,"status":"done"}`); !strings.Contains(got, "All steps are now done") {
+		t.Fatalf("final result = %q", got)
+	}
+
+	s.plan = []planStep{{Text: "a", Status: stepInProgress}, {Text: "b"}}
+	if got := update(`{"index":0,"status":"done"}`); !strings.Contains(got, `Step 1 ("b") is now marked in_progress`) {
+		t.Fatalf("in-order result = %q", got)
+	}
+}
